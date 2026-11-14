@@ -1,0 +1,21 @@
+last known state:
+  Phone Id=0
+    mCallState=0
+    mRingingCallState=0
+    mCallIncomingNumber=
+    mServiceState={mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE), mChannelNumber=1300, duplexMode()=1, mCellBandwidths=[15000], mOperatorAlphaLong=TELKOMSEL, mOperatorAlphaShort=TSEL, isManualNetworkSelection=false(automatic), getRilVoiceRadioTechnology=14(LTE), getRilDataRadioTechnology=14(LTE), mCssIndicator=unsupported, mCdmaRoamingIndicator=-1, mCdmaDefaultRoamingIndicator=-1, mIsEmergencyOnly=false, isUsingCarrierAggregation=false, mArfcnRsrpBoost=0, mNetworkRegistrationInfos=[NetworkRegistrationInfo{ domain=PS transportType=WWAN registrationState=HOME roamingType=NOT_ROAMING accessNetworkTechnology=LTE rejectCause=0 emergencyEnabled=false availableServices=[DATA] cellIdentity=CellIdentityLte:{ mCi=8130561 mPci=33 mTac=12345 mEarfcn=1300 mBands=[3] mBandwidth=15000 mMcc=510 mMnc=10 mAlphaLong=TELKOMSEL mAlphaShort=TSEL mAdditionalPlmns={} mCsgInfo=null} voiceSpecificInfo=null dataSpecificInfo=android.telephony.DataSpecificRegistrationInfo :{ maxDataCalls = 16 isDcNrRestricted = false isNrAvailable = true isEnDcAvailable = true LteVopsSupportInfo :  mVopsSupport = 2 mEmcBearerSupport = 3 } nrState=CONNECTED rRplmn=51010 isUsingCarrierAggregation=false}], mNrFrequencyRange=3, mOperatorAlphaLongRaw=TELKOMSEL, mOperatorAlphaShortRaw=TSEL, mIsDataRoamingFromRegistration=false, mIsIwlanPreferred=false}
+    mVoiceActivationState=0
+    mDataActivationState=0
+    mUserMobileDataState=true
+    mSignalStrength=SignalStrength:{mCdma=Invalid,mGsm=Invalid,mWcdma=Invalid,mTdscdma=Invalid,mLte=CellSignalStrengthLte: rssi=-62 rsrp=-92 rsrq=-10 rssnr=13 mCqiTableIndex=2147483647 mCqi=2147483647 ta=2147483647 level=3 parametersUseForLevel=0,mNr=CellSignalStrengthNr:{ csiRsrp = 2147483647 csiRsrq = 2147483647 csiCqiTableIndex = 2147483647 csiCqiReport = [] ssRsrp = -96 ssRsrq = -11 ssSinr = 8 level = 3 parametersUseForLevel = 0 },primary=CellSignalStrengthLte}
+    mMessageWaiting=false
+    mCallForwarding=false
+    mDataActivity=3
+    mDataConnectionState=2
+    mCellIdentity=CellIdentityLte:{ mCi=8130561 mPci=33 mTac=12345 mEarfcn=1300 mBands=[3] mBandwidth=15000 mMcc=510 mMnc=10 mAlphaLong=TELKOMSEL mAlphaShort=TSEL mAdditionalPlmns={} mCsgInfo=null}
+    mCellInfo=[CellInfoLte:{mRegistered=YES mTimeStamp=5555555555ns mCellConnectionStatus=1 CellIdentityLte:{ mCi=8130561 mPci=33 mTac=12345 mEarfcn=1300 mBands=[3] mBandwidth=15000 mMcc=510 mMnc=10 mAlphaLong=TELKOMSEL mAlphaShort=TSEL mAdditionalPlmns={} mCsgInfo=null} CellSignalStrengthLte: rssi=-62 rsrp=-92 rsrq=-10 rssnr=13 mCqiTableIndex=2147483647 mCqi=2147483647 ta=2147483647 level=3 parametersUseForLevel=0 android.telephony.CellConfigLte :{ isEndcAvailable = true }}, CellInfoNr:{ mRegistered = NO mCellConnectionStatus = 0 CellIdentityNr:{ mPci = 770 mTac = 2147483647 mNrArfcn = 151000 mBands = [] mMcc = null mMnc = null mNci = 9223372036854775807 mAlphaLong =  mAlphaShort =  mAdditionalPlmns = {} } CellSignalStrengthNr:{ csiRsrp = 2147483647 csiRsrq = 2147483647 csiCqiTableIndex = 2147483647 csiCqiReport = [] ssRsrp = -96 ssRsrq = -11 ssSinr = 8 level = 3 parametersUseForLevel = 0 } }]
+    mTelephonyDisplayInfo=TelephonyDisplayInfo {network=LTE, overrideNetwork=NR_NSA, isRoaming=false}
+    mIsDataEnabled=true
+    mPhysicalChannelConfigs=[PhysicalChannelConfig{mConnectionStatus=PrimaryServing,mCellBandwidthDownlinkKhz=15000,mNetworkType=LTE,mDownlinkChannelNumber=1300,mPhysicalCellId=33,mBand=3}, PhysicalChannelConfig{mConnectionStatus=SecondaryServing,mCellBandwidthDownlinkKhz=100000,mNetworkType=NR,mDownlinkChannelNumber=151000,mPhysicalCellId=770,mBand=40}]
+  mCarrierNetworkChangeState=false
+  mRadioPowerState=1

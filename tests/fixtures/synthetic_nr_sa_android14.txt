@@ -1,0 +1,20 @@
+last known state:
+  Phone Id=0
+    mCallState=0
+    mRingingCallState=0
+    mCallIncomingNumber=
+    mServiceState={mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE), mChannelNumber=630000, duplexMode()=2, mCellBandwidths=[100000], mOperatorAlphaLong=TELKOMSEL, mOperatorAlphaShort=TSEL, isManualNetworkSelection=false(automatic), getRilVoiceRadioTechnology=20(NR), getRilDataRadioTechnology=20(NR), mCssIndicator=unsupported, mCdmaRoamingIndicator=-1, mCdmaDefaultRoamingIndicator=-1, mIsEmergencyOnly=false, isUsingCarrierAggregation=false, mArfcnRsrpBoost=0, mNetworkRegistrationInfos=[NetworkRegistrationInfo{ domain=PS transportType=WWAN registrationState=HOME networkRegistrationState=HOME roamingType=NOT_ROAMING accessNetworkTechnology=NR rejectCause=0 emergencyEnabled=false availableServices=[DATA, MMS] cellIdentity=CellIdentityNr:{ mPci = 512 mTac = 4660 mNrArfcn = 630000 mBands = [78] mMcc = 510 mMnc = 10 mNci = 68719476 mAlphaLong = TELKOMSEL mAlphaShort = TSEL mAdditionalPlmns = {} } voiceSpecificInfo=null dataSpecificInfo=android.telephony.DataSpecificRegistrationInfo :{ maxDataCalls = 16 isDcNrRestricted = false isNrAvailable = false isEnDcAvailable = false mLteAttachResultType = 0 mLteAttachExtraInfo = 0 mLteVopsSupportInfo = null mNrVopsSupportInfo = android.telephony.NrVopsSupportInfo : mVopsSupport = 2 mEmcSupport = 3 mEmfSupport = 3 } nrState=NONE rRplmn=51010 isUsingCarrierAggregation=false isNonTerrestrialNetwork=TERRESTRIAL}], mNrFrequencyRange=3, mOperatorAlphaLongRaw=TELKOMSEL, mOperatorAlphaShortRaw=TSEL, mIsDataRoamingFromRegistration=false, mIsIwlanPreferred=false}
+    mVoiceActivationState=0
+    mDataActivationState=0
+    mUserMobileDataState=true
+    mSignalStrength=SignalStrength:{mCdma=Invalid,mGsm=Invalid,mWcdma=Invalid,mTdscdma=Invalid,mLte=Invalid,mNr=CellSignalStrengthNr:{ csiRsrp = -90 csiRsrq = -10 csiSinr = 16 csiCqiTableIndex = 2147483647 csiCqiReport = [] ssRsrp = -88 ssRsrq = -11 ssSinr = 18 level = 4 parametersUseForLevel = 0 timingAdvance = 2147483647 },primary=CellSignalStrengthNr}
+    mMessageWaiting=false
+    mCallForwarding=false
+    mDataActivity=0
+    mDataConnectionState=2
+    mCellIdentity=CellIdentityNr:{ mPci = 512 mTac = 4660 mNrArfcn = 630000 mBands = [78] mMcc = 510 mMnc = 10 mNci = 68719476 mAlphaLong = TELKOMSEL mAlphaShort = TSEL mAdditionalPlmns = {} }
+    mCellInfo=[]
+    mTelephonyDisplayInfo=TelephonyDisplayInfo {network=NR, overrideNetwork=NONE, isRoaming=false, isNtn=false, isSatelliteConstrainedData=false}
+    mIsDataEnabled=true
+  mCarrierNetworkChangeState=false
+  mRadioPowerState=1

@@ -1,0 +1,3 @@
+{"ok": true, "rat": "NR", "rsrp": -88, "rsrq": -11, "sinr": 18.0, "rssi": null,
+ "pci": 512, "cell_id": 68719476, "earfcn": 630000, "band": 78,
+ "in_service": true, "phone_id": 0, "operator_alpha": "TELKOMSEL", "nr_nsa": false}

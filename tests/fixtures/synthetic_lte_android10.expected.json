@@ -1,0 +1,3 @@
+{"ok": true, "rat": "LTE", "rsrp": -98, "rsrq": -11, "sinr": 9.0, "rssi": -67,
+ "pci": 211, "cell_id": 27394817, "earfcn": 1850, "band": 3,
+ "in_service": true, "phone_id": 0, "operator_alpha": "IM3", "nr_nsa": false}

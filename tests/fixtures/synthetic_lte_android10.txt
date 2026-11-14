@@ -1,0 +1,39 @@
+last known state:
+  Phone Id=0
+  mCallState=0
+  mRingingCallState=0
+  mForegroundCallState=0
+  mBackgroundCallState=0
+  mPreciseCallState=Ringing call state: 0, Foreground call state: 0, Background call state: 0, Disconnect cause: -1, Precise disconnect cause: -1
+  mCallDisconnectCause=-1
+  mCallIncomingNumber=
+  mServiceState={mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE), mVoiceRoamingType=home, mDataRoamingType=home, mVoiceOperatorAlphaLong=IM3, mVoiceOperatorAlphaShort=IM3, mDataOperatorAlphaLong=IM3, mDataOperatorAlphaShort=IM3, isManualNetworkSelection=false(automatic), mRilVoiceRadioTechnology=14(LTE), mRilDataRadioTechnology=14(LTE), mCssIndicator=unsupported, mNetworkId=-1, mSystemId=-1, mCdmaRoamingIndicator=-1, mCdmaDefaultRoamingIndicator=-1, mIsEmergencyOnly=false, mIsUsingCarrierAggregation=false, mLteEarfcnRsrpBoost=0, mNetworkRegistrationInfos=[NetworkRegistrationInfo{ domain=CS transportType=WWAN registrationState=HOME roamingType=NOT_ROAMING accessNetworkTechnology=LTE rejectCause=0 emergencyEnabled=false availableServices=[VOICE, SMS, VIDEO] cellIdentity=CellIdentityLte:{ mCi=27394817 mPci=211 mTac=10520 mEarfcn=1850 mBandwidth=2147483647 mMcc=510 mMnc=01 mAlphaLong=IM3 mAlphaShort=IM3} voiceSpecificInfo=VoiceSpecificRegistrationInfo { mCssSupported=false mRoamingIndicator=0 mSystemIsInPrl=0 mDefaultRoamingIndicator=0} dataSpecificInfo=null nrState=NONE}, NetworkRegistrationInfo{ domain=PS transportType=WWAN registrationState=HOME roamingType=NOT_ROAMING accessNetworkTechnology=LTE rejectCause=0 emergencyEnabled=false availableServices=[DATA] cellIdentity=CellIdentityLte:{ mCi=27394817 mPci=211 mTac=10520 mEarfcn=1850 mBandwidth=2147483647 mMcc=510 mMnc=01 mAlphaLong=IM3 mAlphaShort=IM3} voiceSpecificInfo=null dataSpecificInfo=DataSpecificRegistrationInfo { maxDataCalls=16 isDcNrRestricted=false isNrAvailable=false isEnDcAvailable=false LteVopsSupportInfo :  mVopsSupport = 2 mEmcBearerSupport = 3 } nrState=NONE}], mNrFrequencyRange=-1, mIsIwlanPreferred=false}
+  mVoiceActivationState=0
+  mDataActivationState=0
+  mUserMobileDataState=true
+  mSignalStrength=SignalStrength:{mCdma=CellSignalStrengthCdma: cdmaDbm=2147483647 cdmaEcio=2147483647 evdoDbm=2147483647 evdoEcio=2147483647 evdoSnr=2147483647 level=0,mGsm=CellSignalStrengthGsm: rssi=2147483647 ber=2147483647 mTa=2147483647 mLevel=0,mWcdma=CellSignalStrengthWcdma: ss=2147483647 ber=2147483647 rscp=2147483647 ecno=2147483647 mLevel=0,mTdscdma=CellSignalStrengthTdscdma: rssi=2147483647 ber=2147483647 rscp=2147483647 mLevel=0,mLte=CellSignalStrengthLte: rssi=-67 rsrp=-98 rsrq=-11 rssnr=9 cqi=2147483647 ta=2147483647 mLevel=3,mNr=CellSignalStrengthNr:{ csiRsrp = 2147483647 csiRsrq = 2147483647 csiSinr = 2147483647 ssRsrp = 2147483647 ssRsrq = 2147483647 ssSinr = 2147483647 level = 0 },primary=CellSignalStrengthLte}
+  mMessageWaiting=false
+  mCallForwarding=false
+  mDataActivity=0
+  mDataConnectionState=2
+  mDataConnectionPossible=true
+  mDataConnectionApn=internet
+  mDataConnectionNetworkType=13
+  mCellLocation=Bundle[{cid=27394817, lac=10520, psc=-1}]
+  mCellInfo=[CellInfoLte:{mRegistered=YES mTimeStamp=1234567890123ns mCellConnectionStatus=1 CellIdentityLte:{ mCi=27394817 mPci=211 mTac=10520 mEarfcn=1850 mBandwidth=2147483647 mMcc=510 mMnc=01 mAlphaLong=IM3 mAlphaShort=IM3} CellSignalStrengthLte: rssi=-67 rsrp=-98 rsrq=-11 rssnr=9 cqi=2147483647 ta=3 mLevel=3}, CellInfoLte:{mRegistered=NO mTimeStamp=1234567890123ns mCellConnectionStatus=0 CellIdentityLte:{ mCi=2147483647 mPci=87 mTac=2147483647 mEarfcn=1850 mBandwidth=2147483647 mMcc=null mMnc=null mAlphaLong= mAlphaShort=} CellSignalStrengthLte: rssi=-79 rsrp=-109 rsrq=-15 rssnr=2147483647 cqi=2147483647 ta=2147483647 mLevel=1}]
+  mSrvccState=-1
+  mCallPreciseDisconnectCause=-1
+  mCallDisconnectCause=-1
+  mCarrierNetworkChangeState=false
+  mRingingCallState=0
+  mForegroundCallState=0
+  mBackgroundCallState=0
+  mVoLteServiceState=VoLteServiceState: 1
+  mPhoneCapability=mMaxActiveVoiceCalls=1 mMaxActiveData=1 mNetworkValidationBeforeSwitchSupported=false mModemCount=1
+  mPreferredDataSubId=1
+  mRadioPowerState=1
+local logs:
+  2026-11-14T08:00:01.123 - notifySignalStrengthForPhoneId: subId=1 phoneId=0 signalStrength=SignalStrength:{mLte=CellSignalStrengthLte: rssi=-90 rsrp=-121 rsrq=-18 rssnr=-3 cqi=2147483647 ta=2147483647 mLevel=1}
+  mSignalStrength=SignalStrength:{mLte=CellSignalStrengthLte: rssi=-91 rsrp=-122 rsrq=-19 rssnr=-4 cqi=2147483647 ta=2147483647 mLevel=1}
+registrations: count=5
+  {callingPackage=com.android.systemui binder=android.os.BinderProxy@1a2b3c callback=null onSubscriptionsChangedListenererCallback=null subId=1 phoneId=0 events=21}

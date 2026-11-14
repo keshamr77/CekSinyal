@@ -1,0 +1,26 @@
+# Salin ke config.yaml lalu sesuaikan. Path relatif dihitung dari folder file ini.
+
+# Nama kos/lokasi; ikut tersimpan di setiap baris data.
+kos: kos-a
+
+database: data/ceksinyal.db
+raw_dir: data/raw
+
+# Path ke adb. Cukup "adb" kalau platform-tools sudah ada di PATH.
+adb_path: adb
+
+collector:
+  interval_seconds: 10        # jeda antar-pembacaan per HP
+  max_devices: 2              # satu laptop membaca 1-2 HP
+  adb_timeout_seconds: 15     # batas waktu satu perintah adb
+  raw_dump_interval_minutes: 60  # maksimal satu file output mentah per HP per periode ini
+
+# HP yang dibaca. Serial dilihat dengan: python -m ceksinyal devices
+# Kalau daftar ini kosong, collector memakai HP apa saja yang terhubung (maks. max_devices)
+# dan nama operator diambil dari getprop gsm.operator.alpha.
+devices:
+  - serial: R58M12345AB
+    operator: Telkomsel
+    # phone_id: 0   # opsional, untuk HP dual-SIM: slot SIM yang dibaca (0 atau 1)
+  - serial: 9A1B2C3D
+    operator: Indosat

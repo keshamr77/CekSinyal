@@ -1,0 +1,28 @@
+last known state:
+  Phone Id=0
+  mCallState=0
+  mCallIncomingNumber=
+  mServiceState=0 0 voice home data home XL Axiata XL 51011 XL Axiata XL 51011  LTE LTE CSS not supported -1 -1 RoamInd=-1 DefRoamInd=-1 EmergOnly=false IsManualSelection=false RilVoiceRadioTechnology=14 RilDataRadioTechnology=14 IsDataRoamingFromRegistration=false IsUsingCarrierAggregation=false LteEarfcnRsrpBoost=0
+  mVoiceActivationState=0
+  mDataActivationState=0
+  mUserMobileDataState=true
+  mSignalStrength=SignalStrength: 99 0 -120 -160 -120 -1 -1 21 -105 -13 45 2147483647 2147483647 99 2147483647 2147483647 0 gsm|lte level=2 use_rsrp_and_rssnr_for_lte_level  [-128, -118, -108, -98] [-115, -105, -95, -85]
+  mMessageWaiting=false
+  mCallForwarding=false
+  mDataActivity=0
+  mDataConnectionState=2
+  mDataConnectionPossible=true
+  mDataConnectionApn=www.xlgprs.net
+  mDataConnectionLinkProperties=null
+  mDataConnectionNetworkCapabilities=null
+  mDataConnectionNetworkType=13
+  mCellLocation=Bundle[{psc=-1, cid=1849122, lac=30211, mIsEmpty=false}]
+  mCellInfo=[CellInfoLte:{mRegistered=YES mTimeStamp=987654321098ns mCellConnectionStatus=1 CellIdentityLte:{ mCi=1849122 mPci=402 mTac=30211 mEarfcn=3500 mBandwidth=2147483647 mMcc=510 mMnc=11 mAlphaLong=XL Axiata mAlphaShort=XL} CellSignalStrengthLte: ss=21 rsrp=-105 rsrq=-13 rssnr=45 cqi=2147483647 ta=2147483647}, CellInfoLte:{mRegistered=NO mTimeStamp=987654321098ns mCellConnectionStatus=0 CellIdentityLte:{ mCi=2147483647 mPci=155 mTac=2147483647 mEarfcn=3500 mBandwidth=2147483647 mMcc=null mMnc=null mAlphaLong= mAlphaShort=} CellSignalStrengthLte: ss=13 rsrp=-114 rsrq=-17 rssnr=2147483647 cqi=2147483647 ta=2147483647}]
+  mDcRtInfo=DcRtInfo : mConnectionState=2 mTimeSinceBootMs=123456
+  mRingingCallState=0
+  mForegroundCallState=0
+  mBackgroundCallState=0
+  mPreciseCallState=Ringing call state: 0, Foreground call state: 0, Background call state: 0, Disconnect cause: -1, Precise disconnect cause: -1
+  mPreciseDataConnectionState=Data State: 2, Network Type: 13, APN Type: default, APN: www.xlgprs.net, Change Reason: connected, Link Properties: null, Failed Reason:
+local logs:
+  09:15:02.001 - listen: call to remove=false pkg=com.android.systemui events=0x1

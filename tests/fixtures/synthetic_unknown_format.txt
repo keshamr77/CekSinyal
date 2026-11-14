@@ -1,0 +1,7 @@
+last known state:
+  Phone Id=0
+    mCallState=0
+    mServiceState={mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE), mOperatorAlphaLong=by.U, mOperatorAlphaShort=by.U, getRilDataRadioTechnology=14(LTE)}
+    mSignalStrength=VendorSignalStrength{lteRsrpDbm:-95 lteRsrqDb:-10 lteSnrDb:11 level:3}
+    mDataConnectionState=2
+    mCellIdentity=null

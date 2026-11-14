@@ -1,0 +1,20 @@
+last known state:
+  Phone Id=0
+    mCallState=0
+    mRingingCallState=0
+    mCallIncomingNumber=
+    mServiceState={mVoiceRegState=1(OUT_OF_SERVICE), mDataRegState=1(OUT_OF_SERVICE), mChannelNumber=1850, duplexMode()=1, mCellBandwidths=[], mOperatorAlphaLong=null, mOperatorAlphaShort=null, isManualNetworkSelection=false(automatic), getRilVoiceRadioTechnology=0(Unknown), getRilDataRadioTechnology=0(Unknown), mCssIndicator=unsupported, mCdmaRoamingIndicator=-1, mCdmaDefaultRoamingIndicator=-1, VoiceRegState=1(OUT_OF_SERVICE), DataRegState=1(OUT_OF_SERVICE), mIsEmergencyOnly=true, isUsingCarrierAggregation=false, mArfcnRsrpBoost=0, mNetworkRegistrationInfos=[NetworkRegistrationInfo{ domain=CS transportType=WWAN registrationState=DENIED roamingType=NOT_ROAMING accessNetworkTechnology=LTE rejectCause=0 emergencyEnabled=true availableServices=[EMERGENCY] cellIdentity=CellIdentityLte:{ mCi=21004566 mPci=97 mTac=10520 mEarfcn=1850 mBands=[3] mBandwidth=20000 mMcc=510 mMnc=01 mAlphaLong=null mAlphaShort=null mAdditionalPlmns={} mCsgInfo=null} voiceSpecificInfo=VoiceSpecificRegistrationInfo { mCssSupported=false mRoamingIndicator=0 mSystemIsInPrl=0 mDefaultRoamingIndicator=0} dataSpecificInfo=null nrState=NONE rRplmn= isUsingCarrierAggregation=false}], mNrFrequencyRange=0, mOperatorAlphaLongRaw=null, mOperatorAlphaShortRaw=null, mIsDataRoamingFromRegistration=false, mIsIwlanPreferred=false}
+    mVoiceActivationState=0
+    mDataActivationState=0
+    mUserMobileDataState=true
+    mSignalStrength=SignalStrength:{mCdma=Invalid,mGsm=Invalid,mWcdma=Invalid,mTdscdma=Invalid,mLte=CellSignalStrengthLte: rssi=-97 rsrp=-128 rsrq=-19 rssnr=-6 mCqiTableIndex=2147483647 mCqi=2147483647 ta=2147483647 level=0 parametersUseForLevel=0,mNr=Invalid,primary=CellSignalStrengthLte}
+    mMessageWaiting=false
+    mCallForwarding=false
+    mDataActivity=0
+    mDataConnectionState=0
+    mCellIdentity=CellIdentityLte:{ mCi=21004566 mPci=97 mTac=10520 mEarfcn=1850 mBands=[3] mBandwidth=20000 mMcc=510 mMnc=01 mAlphaLong=null mAlphaShort=null mAdditionalPlmns={} mCsgInfo=null}
+    mCellInfo=[]
+    mTelephonyDisplayInfo=TelephonyDisplayInfo {network=UNKNOWN, overrideNetwork=NONE, isRoaming=false}
+    mIsDataEnabled=true
+  mCarrierNetworkChangeState=false
+  mRadioPowerState=1

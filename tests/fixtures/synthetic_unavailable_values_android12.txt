@@ -1,0 +1,20 @@
+last known state:
+  Phone Id=0
+    mCallState=0
+    mRingingCallState=0
+    mCallIncomingNumber=
+    mServiceState={mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE), mChannelNumber=2147483647, duplexMode()=0, mCellBandwidths=[], mOperatorAlphaLong=XL Axiata, mOperatorAlphaShort=XL, isManualNetworkSelection=false(automatic), getRilVoiceRadioTechnology=14(LTE), getRilDataRadioTechnology=14(LTE), mCssIndicator=unsupported, mCdmaRoamingIndicator=-1, mCdmaDefaultRoamingIndicator=-1, mIsEmergencyOnly=false, isUsingCarrierAggregation=false, mArfcnRsrpBoost=0, mNetworkRegistrationInfos=[NetworkRegistrationInfo{ domain=PS transportType=WWAN registrationState=HOME roamingType=NOT_ROAMING accessNetworkTechnology=LTE rejectCause=0 emergencyEnabled=false availableServices=[DATA] cellIdentity=CellIdentityLte:{ mCi=********* mPci=*** mTac=***** mEarfcn=2147483647 mBands=[] mBandwidth=2147483647 mMcc=510 mMnc=11 mAlphaLong=XL Axiata mAlphaShort=XL mAdditionalPlmns={} mCsgInfo=null} voiceSpecificInfo=null dataSpecificInfo=null nrState=NONE rRplmn=51011 isUsingCarrierAggregation=false}], mNrFrequencyRange=0, mOperatorAlphaLongRaw=XL Axiata, mOperatorAlphaShortRaw=XL, mIsDataRoamingFromRegistration=false, mIsIwlanPreferred=false}
+    mVoiceActivationState=0
+    mDataActivationState=0
+    mUserMobileDataState=true
+    mSignalStrength=SignalStrength:{mCdma=Invalid,mGsm=Invalid,mWcdma=Invalid,mTdscdma=Invalid,mLte=CellSignalStrengthLte: rssi=2147483647 rsrp=-112 rsrq=2147483647 rssnr=2147483647 mCqiTableIndex=2147483647 mCqi=2147483647 ta=2147483647 level=1 parametersUseForLevel=0,mNr=Invalid,primary=CellSignalStrengthLte}
+    mMessageWaiting=false
+    mCallForwarding=false
+    mDataActivity=0
+    mDataConnectionState=2
+    mCellIdentity=CellIdentityLte:{ mCi=2147483647 mPci=2147483647 mTac=2147483647 mEarfcn=2147483647 mBands=[] mBandwidth=2147483647 mMcc=510 mMnc=11 mAlphaLong=XL Axiata mAlphaShort=XL mAdditionalPlmns={} mCsgInfo=null}
+    mCellInfo=[]
+    mTelephonyDisplayInfo=TelephonyDisplayInfo {network=LTE, overrideNetwork=NONE, isRoaming=false}
+    mIsDataEnabled=true
+  mCarrierNetworkChangeState=false
+  mRadioPowerState=1
