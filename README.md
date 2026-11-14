@@ -70,6 +70,12 @@ Kalau `devices` kosong, collector memakai HP apa saja yang terhubung (maks. `max
 - **RAT**: tidak dalam layanan → `NONE` dengan nilai sinyal kosong (dihitung "sinyal hilang").
   NR NSA (5G non-standalone) disimpan sebagai `LTE` dengan nilai anchor LTE; nilai NR hanya tampil di `probe`.
   Band LTE dihitung dari EARFCN kalau HP tidak menampilkan `mBands`.
+- **Identitas sel disembunyikan**: beberapa HP (contohnya Xiaomi MIUI, mis. Redmi 9C Android 10) tidak
+  memberikan identitas sel lewat ADB, bahkan saat Lokasi menyala: `CellIdentityLte` hanya berisi
+  bandwidth/MCC/MNC/nama operator dan `mCellLocation` berisi `cid=-1`. Akibatnya `pci` dan `cell_id`
+  bisa kosong. Sebagai cadangan, EARFCN diambil dari `mChannelNumber` di `mServiceState` saat ini
+  (bukan dari riwayat *local logs*; `2147483647` dan nilai di luar rentang diabaikan), lalu band dihitung
+  dari EARFCN. Diagnosis handover memakai pergantian EARFCN sebagai pendekatan kalau `cell_id` kosong.
 - **Parsing gagal** (format tidak dikenali, atau HP dalam layanan tapi tidak ada RSRP): baris tetap disimpan
   dengan `raw_ok=0` dan `rat` kosong, output mentah disimpan ke `data/raw/<serial>_<waktu>.txt`
   (maks. satu per HP per jam, juga setelah restart), dan dicatat sebagai event `collector_error`.
@@ -83,10 +89,12 @@ Kalau `devices` kosong, collector memakai HP apa saja yang terhubung (maks. `max
 python -m pytest
 ```
 
-Fixture ada di `tests/fixtures/`. Saat ini semuanya sintetis (`synthetic_*.txt`). Untuk menambah fixture asli:
+Fixture ada di `tests/fixtures/`. Sebagian besar sintetis (`synthetic_*.txt`); fixture asli pertama adalah
+`real_redmi9c_android10.txt` (Xiaomi Redmi 9C, MIUI, Android 10, MediaTek, Telkomsel). Untuk menambah fixture asli:
 
 1. Jalankan `python -m ceksinyal probe` dengan HP tersambung, lalu ambil file `data/raw/probe_*.txt`.
 2. Salin ke `tests/fixtures/real_<merek>_<android>_<operator>.txt`. Hapus dulu data pribadi
-   (nomor telepon di `mCallIncomingNumber`, dsb.) kalau ada.
+   (nomor telepon di `mCallIncomingNumber`, IMEI/IMSI/ICCID, dsb.) kalau ada. Nama aplikasi pihak ketiga
+   di `listen logs`/`registrations` juga sebaiknya diganti (mis. `com.example.app1`).
 3. Opsional tapi disarankan: buat `real_....expected.json` berisi nilai yang benar (cek di aplikasi
    seperti *Network Cell Info*). Tanpa file itu, tes hanya memastikan fixture berhasil di-parse.

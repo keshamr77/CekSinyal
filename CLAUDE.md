@@ -72,7 +72,7 @@ Dihitung per operator untuk jendela 10 menit terakhir. Periksa berurutan, berhen
 2. Median RSRP < −110 dBm → **Cakupan lemah**: pindah titik, operator lain, atau ajukan BTS
 3. Median SINR < 0 dB → **Interferensi**: coba operator atau band lain
 4. Median kecepatan unduh < 50% median harian operator itu (butuh ≥ 6 data kecepatan; kalau kurang, lewati) → **Sel padat**: operator lain atau geser jam
-5. Cell ID berganti ≥ 4 kali dalam jendela → **Handover bolak-balik**: kunci band atau geser posisi
+5. Sel berganti ≥ 4 kali dalam jendela → **Handover bolak-balik**: kunci band atau geser posisi. Kalau `cell_id` tersedia, hitung pergantian `cell_id`; kalau tidak (beberapa HP, mis. Xiaomi MIUI, menyembunyikan identitas sel), hitung pergantian `earfcn` sebagai pendekatan; kalau keduanya tidak ada, lewati aturan ini dan catat "handover: tidak tersedia" di hasil diagnosis.
 6. Selain itu → **Normal**
 Jendela dengan < 20 sampel → hasil "Data kurang". Diagnosis harus bisa dijalankan ulang pada data lama (`python -m ceksinyal diagnose --rerun`) setelah ambang diubah.
 Kalau dua operator ada di kos yang sama, buat juga rekomendasi: operator dengan diagnosis terbaik, lalu median RSRP tertinggi.

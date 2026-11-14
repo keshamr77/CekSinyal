@@ -291,10 +291,27 @@ def lte_band_from_earfcn(earfcn: int | None) -> int | None:
     return None
 
 
+def _service_state_earfcn(section: str) -> int | None:
+    """EARFCN dari `mChannelNumber` di baris mServiceState saat ini.
+
+    Cadangan untuk HP yang menyembunyikan identitas sel (mis. Xiaomi MIUI: CellIdentityLte tanpa
+    mCi/mPci/mEarfcn). Hanya baris `mServiceState=` yang dibaca, bukan riwayat `state={...}` di
+    local logs. Kalau service state menyebut teknologi data selain LTE, nilainya bukan EARFCN.
+    """
+    line = _field_line(section, "mServiceState")
+    if line is None:
+        return None
+    tech = re.search(r"RilDataRadioTechnology\s*=\s*\d+\s*\(\s*([\w-]+)", line)
+    if tech and not tech.group(1).upper().startswith("LTE"):
+        return None
+    value = _valid(_int("mChannelNumber", line), EARFCN)
+    return int(value) if value is not None else None
+
+
 def _identity(section: str, rat: str) -> dict[str, int | None]:
     if rat == "LTE":
         blocks = _identity_blocks(section, "Lte")
-        earfcn = _first_valid(blocks, "m?earfcn", EARFCN)
+        earfcn = _first(_first_valid(blocks, "m?earfcn", EARFCN), _service_state_earfcn(section))
         return {
             "pci": _first_valid(blocks, "m?pci", PCI_LTE),
             "cell_id": _first_valid(blocks, "m?ci", CI_LTE),

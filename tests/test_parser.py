@@ -164,3 +164,61 @@ def test_android9_sinr_units():
 @pytest.mark.parametrize("earfcn,band", [(275, 1), (1850, 3), (3500, 8), (38750, 40), (None, None), (99999, None)])
 def test_lte_band_from_earfcn(earfcn, band):
     assert lte_band_from_earfcn(earfcn) == band
+
+
+def _masked_lte(service_state: str) -> str:
+    """HP yang menyembunyikan identitas sel (pola Xiaomi MIUI): hanya mChannelNumber yang tersisa."""
+    return (
+        "  Phone Id=0\n"
+        f"    mServiceState={{mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE), {service_state}}}\n"
+        "    mSignalStrength=SignalStrength:{mLte=CellSignalStrengthLte: rssi=2147483647 rsrp=-101 "
+        "rsrq=-11 rssnr=55 level=3,mNr=Invalid}\n"
+        "    mCellInfo=[CellInfoLte:{mRegistered=YES CellIdentityLte:{ mBandwidth=2147483647 mMcc=510 "
+        "mMnc=10 mAlphaLong=Telkomsel} CellSignalStrengthLte: rssi=2147483647 rsrp=-100 rsrq=-13}]\n"
+    )
+
+
+def test_real_redmi9c_earfcn_from_service_state():
+    r = parse_registry(_read("real_redmi9c_android10.txt"))
+    assert (r.pci, r.cell_id) == (None, None)
+    assert (r.earfcn, r.band) == (38750, 40)
+
+
+def test_masked_identity_ignores_channel_number_in_local_logs():
+    # Local logs memuat mChannelNumber=38750 dan 500; yang dipakai harus service state saat ini (1850).
+    r = parse_registry(_read("synthetic_lte_masked_identity_android10.txt"))
+    assert (r.earfcn, r.band) == (1850, 3)
+
+
+@pytest.mark.parametrize(
+    "service_state,earfcn,band",
+    [
+        ("mChannelNumber=38750, duplexMode()=2, getRilDataRadioTechnology=14(LTE)", 38750, 40),
+        ("mChannelNumber=1850, duplexMode()=1", 1850, 3),
+        ("mChannelNumber=2147483647, duplexMode()=0", None, None),
+        ("mChannelNumber=-1, duplexMode()=0", None, None),
+        ("mChannelNumber=999999, duplexMode()=1", None, None),
+        ("mChannelNumber=10638, getRilDataRadioTechnology=3(UMTS)", None, None),
+        ("duplexMode()=0", None, None),
+    ],
+)
+def test_masked_identity_channel_number_fallback(service_state, earfcn, band):
+    r = parse_registry(_masked_lte(service_state))
+    assert r.rat == "LTE" and r.rsrp == -101
+    assert (r.pci, r.cell_id, r.earfcn, r.band) == (None, None, earfcn, band)
+
+
+def test_channel_number_only_in_local_logs_is_ignored():
+    text = _masked_lte("duplexMode()=0") + (
+        "local logs:\n"
+        "  2026-11-14T08:00:01.123 - notifyServiceStateForSubscriber: subId=1 phoneId=0 "
+        "state={mVoiceRegState=0(IN_SERVICE), mChannelNumber=38750}\n"
+        "  mServiceState={mVoiceRegState=0(IN_SERVICE), mChannelNumber=1850}\n"
+    )
+    assert parse_registry(text).earfcn is None
+
+
+def test_identity_earfcn_takes_precedence_over_channel_number():
+    text = _masked_lte("mChannelNumber=1850").replace("mBandwidth=2147483647", "mEarfcn=3500 mBandwidth=2147483647")
+    r = parse_registry(text)
+    assert (r.earfcn, r.band) == (3500, 8)

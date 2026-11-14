@@ -1,0 +1,22 @@
+last known state:
+  Phone Id=0
+    mCallState=0
+    mCallIncomingNumber=
+    mServiceState={mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE), mChannelNumber=1850, duplexMode()=1, mCellBandwidths=[20000], mVoiceOperatorAlphaLong=XL Axiata, mVoiceOperatorAlphaShort=XL, mDataOperatorAlphaLong=XL Axiata, mDataOperatorAlphaShort=XL, isManualNetworkSelection=false(automatic), getRilVoiceRadioTechnology=14(LTE), getRilDataRadioTechnology=14(LTE), mIsEmergencyOnly=false, isUsingCarrierAggregation=false, mLteEarfcnRsrpBoost=0, mNetworkRegistrationInfos=[NetworkRegistrationInfo{ domain=CS transportType=WWAN registrationState=HOME accessNetworkTechnology=LTE availableServices=[VOICE,SMS] cellIdentity=CellIdentityLte:{ mBandwidth=20000 mMcc=510 mMnc=11 mAlphaLong=XL Axiata mAlphaShort=XL} nrState=NONE}, NetworkRegistrationInfo{ domain=PS transportType=WWAN registrationState=HOME accessNetworkTechnology=LTE availableServices=[DATA] cellIdentity=CellIdentityLte:{ mBandwidth=20000 mMcc=510 mMnc=11 mAlphaLong=XL Axiata mAlphaShort=XL} nrState=NONE}], mNrFrequencyRange=-1, CellularDataNetworkType=13}
+    mSignalStrength=SignalStrength:{mCdma=CellSignalStrengthCdma: cdmaDbm=2147483647 cdmaEcio=2147483647 evdoDbm=2147483647 evdoEcio=2147483647 evdoSnr=2147483647 miuiLevel=0 level=0,mGsm=CellSignalStrengthGsm: rssi=2147483647 ber=2147483647 mTa=2147483647 miuiLevel=0 mLevel=0,mWcdma=CellSignalStrengthWcdma: ss=2147483647 ber=2147483647 rscp=2147483647 ecno=2147483647 miuiLevel=0 level=0,mLte=CellSignalStrengthLte: rssi=2147483647 rsrp=-108 rsrq=-14 rssnr=-25 cqi=0 ta=0 miuiLevel=2 level=2,mNr=CellSignalStrengthNr:{ csiRsrp = 2147483647 csiRsrq = 2147483647 csiSinr = 2147483647 ssRsrp = 2147483647 ssRsrq = 2147483647 ssSinr = 2147483647 miuiLevel = 0 level = 0 },primary=CellSignalStrengthLte}, phoneId=0, mMtkLevel=0
+    mDataConnectionState=2
+    mCellLocation=Bundle[{cid=-1, lac=-1, psc=-1}]
+    mCellInfo=[CellInfoLte:{mRegistered=YES mTimeStamp=1234567890123ns mCellConnectionStatus=1 CellIdentityLte:{ mBandwidth=2147483647 mMcc=510 mMnc=11 mAlphaLong=XL Axiata mAlphaShort=XL} CellSignalStrengthLte: rssi=2147483647 rsrp=-109 rsrq=-15 rssnr=2147483647 cqi=2147483647 ta=2147483647 miuiLevel=2 level=1}]
+    mRadioPowerState=1
+  Phone Id=1
+    mServiceState={mVoiceRegState=3(POWER_OFF), mDataRegState=3(POWER_OFF), mChannelNumber=-1, duplexMode()=0, getRilVoiceRadioTechnology=0(Unknown), getRilDataRadioTechnology=0(Unknown)}
+    mSignalStrength=SignalStrength:{mLte=CellSignalStrengthLte: rssi=2147483647 rsrp=2147483647 rsrq=2147483647 rssnr=2147483647 cqi=2147483647 ta=2147483647 miuiLevel=0 level=0,mNr=CellSignalStrengthNr:{ ssRsrp = 2147483647 ssSinr = 2147483647 },primary=CellSignalStrengthLte}, phoneId=1
+    mCellLocation=Bundle[{cid=-1, lac=-1, psc=-1}]
+    mCellInfo=null
+  mDefaultPhoneId=0
+local logs:
+  2026-11-14T08:00:01.123 - notifyServiceStateForSubscriber: subId=1 phoneId=0 state={mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE), mChannelNumber=38750, duplexMode()=2, getRilDataRadioTechnology=14(LTE)}
+  2026-11-14T08:05:01.456 - notifyServiceStateForSubscriber: subId=1 phoneId=0 state={mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE), mChannelNumber=2147483647, duplexMode()=0, getRilDataRadioTechnology=14(LTE)}
+  mServiceState={mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE), mChannelNumber=500, duplexMode()=1, getRilDataRadioTechnology=14(LTE)}
+listen logs:
+  2026-11-14T08:00:00.000 - listen: E pkg=com.example.app1 events=0x1 notifyNow=true subId=1 myUserId=0 callerUserId=0

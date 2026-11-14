@@ -1,0 +1,3 @@
+{"ok": true, "rat": "LTE", "rsrp": -101, "rsrq": -11, "sinr": 5.5, "rssi": null,
+ "pci": null, "cell_id": null, "earfcn": 38750, "band": 40,
+ "in_service": true, "phone_id": 0, "operator_alpha": "Telkomsel", "nr_nsa": false}
