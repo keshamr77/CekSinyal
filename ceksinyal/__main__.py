@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sqlite3
 import sys
 from pathlib import Path
 
-from . import __version__, db
+from . import __version__, db, fix_sinr
 from .collector.adb import Adb, AdbError
 from .collector.parser import SignalReading, parse_registry
 from .collector.service import OPERATOR_PROP, Collector, RawStore, probe
@@ -150,6 +151,37 @@ def cmd_collect(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fix_sinr(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    path = Path(args.db) if args.db else cfg.database
+    try:
+        result = fix_sinr.fix_sinr(path, serial=args.serial, dry_run=args.dry_run)
+    except (OSError, sqlite3.Error) as exc:
+        log.error("fix-sinr gagal: %s", exc)
+        return 1
+    print(f"Database: {path}")
+    if not result.serials:
+        print("Tidak ada baris LTE lama (sinr_raw kosong) yang perlu diperiksa.")
+        return 0
+    rows = [
+        [s.serial, str(s.checked), str(s.corrected), str(s.fractional),
+         _fmt(s.median_before, " dB"), _fmt(s.median_after, " dB")]
+        for s in result.serials.values()
+    ]
+    _print_table(["SERIAL", "DIPERIKSA", "DIKOREKSI", "PECAHAN", "MEDIAN SEBELUM", "MEDIAN SESUDAH"], rows)
+    print(f"\nTotal: {result.checked} baris diperiksa, {result.corrected} dikoreksi (dibagi 10).")
+    suspicious = [s.serial for s in result.serials.values() if s.corrected and not s.fractional]
+    if suspicious and not args.serial:
+        print(
+            "Peringatan: HP berikut tidak punya satu pun nilai SINR pecahan, jadi kemungkinan Android 11+ "
+            f"(dB) dan tidak perlu dikoreksi: {', '.join(suspicious)}. Pertimbangkan --serial."
+        )
+    if args.dry_run:
+        print("--dry-run: tidak ada yang ditulis.")
+    elif result.written:
+        print(f"Selesai. Backup: {result.backup}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", default=argparse.SUPPRESS, help="path config.yaml")
@@ -176,6 +208,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--interval", type=float, help="ganti interval (detik)")
     p.add_argument("--iterations", type=int, help="berhenti setelah N putaran (untuk uji)")
     p.set_defaults(func=cmd_collect)
+
+    p = sub.add_parser("fix-sinr", parents=[common],
+                       help="koreksi SINR LTE lama yang tercatat 10x lipat (HP Android 10)")
+    p.add_argument("--db", help="path database (bawaan: database di config)")
+    p.add_argument("--serial", help="hanya baris dari HP dengan serial ini")
+    p.add_argument("--dry-run", action="store_true", help="tampilkan ringkasan saja, tanpa menulis")
+    p.set_defaults(func=cmd_fix_sinr)
     return parser
 
 
