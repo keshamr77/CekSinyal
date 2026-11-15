@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS measurements (
     cell_id INTEGER,
     earfcn INTEGER,
     band INTEGER,
+    sinr_raw INTEGER,
+    sinr_unit TEXT,
     raw_ok INTEGER NOT NULL DEFAULT 1,
     uploaded INTEGER NOT NULL DEFAULT 0
 );
@@ -77,7 +79,13 @@ CREATE INDEX IF NOT EXISTS idx_events_ts ON events (ts);
 
 MEASUREMENT_COLUMNS = (
     "ts", "kos", "device_serial", "operator", "rat", "rsrp", "rsrq", "sinr", "rssi",
-    "pci", "cell_id", "earfcn", "band", "raw_ok",
+    "pci", "cell_id", "earfcn", "band", "sinr_raw", "sinr_unit", "raw_ok",
+)
+
+# Kolom yang ditambahkan setelah versi awal: (tabel, kolom, tipe). Ditambahkan ke DB lama saat connect.
+ADDED_COLUMNS = (
+    ("measurements", "sinr_raw", "INTEGER"),  # rssnr/sinr mentah dari dumpsys
+    ("measurements", "sinr_unit", "TEXT"),  # satuan sinr_raw: 'db' atau 'deci_db' (0,1 dB)
 )
 
 EVENT_SIGNAL_LOST = "signal_lost"
@@ -103,7 +111,21 @@ def connect(path: Path | str) -> sqlite3.Connection:
     if str(path) != ":memory:":
         conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
+    migrate(conn)
     return conn
+
+
+def migrate(conn: sqlite3.Connection) -> list[str]:
+    """Tambahkan kolom baru ke tabel lama (tanpa menghapus data). Mengembalikan kolom yang ditambahkan."""
+    added = []
+    for table, column, type_ in ADDED_COLUMNS:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {type_}")
+            added.append(f"{table}.{column}")
+    if added:
+        conn.commit()
+    return added
 
 
 def insert_measurement(conn: sqlite3.Connection, row: dict[str, Any]) -> int:

@@ -50,7 +50,8 @@ ceksinyal/
 ```
 
 ## Skema SQLite (semua waktu dalam UTC ISO 8601)
-- `measurements`: id, ts, kos, device_serial, operator, rat (LTE/NR/WCDMA/GSM/NONE), rsrp, rsrq, sinr, rssi, pci, cell_id, earfcn, band, raw_ok (0/1), uploaded (0/1)
+- `measurements`: id, ts, kos, device_serial, operator, rat (LTE/NR/WCDMA/GSM/NONE), rsrp, rsrq, sinr, rssi, pci, cell_id, earfcn, band, sinr_raw (nilai rssnr/sinr mentah dari dumpsys), sinr_unit ('db' / 'deci_db' = 0,1 dB; satuan sinr_raw), raw_ok (0/1), uploaded (0/1)
+- Kolom baru ditambahkan ke DB lama lewat `db.migrate()` (ALTER TABLE ADD COLUMN, cek PRAGMA table_info); data lama tidak dihapus.
 - `speedtests`: id, ts, kos, operator, method (light/full), source_ip, ping_ms, download_mbps, upload_mbps, ok (0/1), error, uploaded
 - `diagnoses`: id, ts, kos, operator, window_start, window_end, n_samples, median_rsrp, median_sinr, median_download, cell_changes, result, advice, uploaded
 - `events`: id, ts, kos, operator, type (signal_lost/diagnosis_changed/collector_error), detail, notified (0/1)
