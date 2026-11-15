@@ -13,6 +13,7 @@ import yaml
 log = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_NAME = "config.yaml"
+SINR_UNIT_CHOICES = ("auto", "db", "deci_db")
 CONFIG_ENV_VAR = "CEKSINYAL_CONFIG"
 
 
@@ -25,6 +26,7 @@ class DeviceConfig:
     serial: str
     operator: str | None = None
     phone_id: int | None = None
+    sinr_unit: str = "auto"  # satuan rssnr LTE: auto (dari SDK HP), db, atau deci_db
 
 
 @dataclass
@@ -126,11 +128,15 @@ def _build(data: dict[str, Any], base: Path, source: Path | None) -> Config:
         if phone_id is not None and not isinstance(phone_id, int):
             raise ConfigError(f"devices[{i}].phone_id harus bilangan bulat")
         operator = item.get("operator")
+        sinr_unit = str(item.get("sinr_unit") or "auto").lower()
+        if sinr_unit not in SINR_UNIT_CHOICES:
+            raise ConfigError(f"devices[{i}].sinr_unit harus salah satu dari {', '.join(SINR_UNIT_CHOICES)}")
         cfg.devices.append(
             DeviceConfig(
                 serial=str(item["serial"]),
                 operator=str(operator) if operator else None,
                 phone_id=phone_id,
+                sinr_unit=sinr_unit,
             )
         )
     if cfg.kos == "belum-diatur":

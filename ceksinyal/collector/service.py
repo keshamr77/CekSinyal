@@ -15,11 +15,16 @@ from typing import Callable
 from .. import db
 from ..config import Config, DeviceConfig
 from .adb import Adb, AdbError, AdbNotFoundError, DeviceInfo
-from .parser import SignalReading, parse_registry
+from .parser import SINR_UNIT_DB, SINR_UNIT_DECI_DB, SINR_UNITS, SignalReading, parse_registry
 
 log = logging.getLogger(__name__)
 
 OPERATOR_PROP = "gsm.operator.alpha"
+SDK_PROP = "ro.build.version.sdk"
+# AOSP mengonversi rssnr LTE dari 0,1 dB ke dB mulai Android 11 (SDK 30).
+LAST_DECI_DB_SDK = 29
+# Di mode dB, |rssnr| di atas ini mustahil (rentang dB -20..30); di atas 300 juga mustahil dalam 0,1 dB.
+SINR_DB_GUARD = (30, 300)
 _TS_FORMAT = "%Y%m%dT%H%M%SZ"
 
 
@@ -89,17 +94,43 @@ def resolve_operator(
     )
 
 
+def parse_sdk(value: str | None) -> int | None:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def lte_sinr_unit(configured: str | None, sdk: int | None) -> str | None:
+    """Satuan rssnr LTE: override config, lalu dari SDK. None kalau SDK tidak diketahui."""
+    if configured in SINR_UNITS:
+        return configured
+    if sdk is None:
+        return None
+    return SINR_UNIT_DECI_DB if sdk <= LAST_DECI_DB_SDK else SINR_UNIT_DB
+
+
+def _configured_unit(dev_cfg: DeviceConfig | None) -> str:
+    return dev_cfg.sinr_unit if dev_cfg else "auto"
+
+
 @dataclass
 class _DeviceState:
     connected: bool | None = None
     prop_alpha: str | None = None
     operator: str | None = None
+    sdk: int | None = None
+    sdk_checked: bool = False
+    sinr_unit: str | None = None  # satuan yang terakhir dipakai (untuk log perubahan)
+    sinr_forced_deci: bool = False  # pengaman: HP "dB" ternyata mengirim 0,1 dB
 
 
 @dataclass
 class _ReadResult:
     text: str
     prop_alpha: str | None
+    sdk: int | None = None
+    sdk_checked: bool = False
 
 
 class Collector:
@@ -243,20 +274,67 @@ class Collector:
                 prop = self.adb.getprop(serial, OPERATOR_PROP) or None
             except AdbError as exc:
                 log.debug("%s: getprop gagal: %s", serial, exc)
-        return _ReadResult(text, prop)
+        result = _ReadResult(text, prop)
+        if _configured_unit(dev_cfg) == "auto" and not (state and state.sdk_checked):
+            # Kalau gagal, dicoba lagi di putaran berikutnya.
+            try:
+                result.sdk = parse_sdk(self.adb.getprop(serial, SDK_PROP))
+                result.sdk_checked = True
+            except AdbError as exc:
+                log.debug("%s: getprop %s gagal: %s", serial, SDK_PROP, exc)
+        return result
+
+    def _sinr_unit(self, serial: str, dev_cfg: DeviceConfig | None, state: _DeviceState) -> str:
+        configured = _configured_unit(dev_cfg)
+        if configured == "auto" and state.sinr_forced_deci:
+            unit, why = SINR_UNIT_DECI_DB, "pengaman: rssnr di luar rentang dB"
+        else:
+            unit = lte_sinr_unit(configured, state.sdk)
+            if configured != "auto":
+                why = "dari config"
+            elif unit is None:
+                # SDK belum diketahui: anggap dB; pengaman di _store memindahkan ke 0,1 dB bila perlu.
+                unit, why = SINR_UNIT_DB, "SDK tidak diketahui, sementara"
+            else:
+                why = f"SDK {state.sdk}"
+        if unit != state.sinr_unit:
+            log.info("%s: satuan SINR LTE = %s (%s)", serial, unit, why)
+            state.sinr_unit = unit
+        return unit
 
     def _store(self, serial: str, result: _ReadResult) -> bool:
         now = self._now()
         dev_cfg = self.config.device(serial)
         state = self._states.setdefault(serial, _DeviceState())
         state.prop_alpha = result.prop_alpha
+        if result.sdk_checked:
+            state.sdk, state.sdk_checked = result.sdk, True
+        phone_id = dev_cfg.phone_id if dev_cfg else None
+        unit = self._sinr_unit(serial, dev_cfg, state)
         try:
-            reading = parse_registry(result.text, phone_id=dev_cfg.phone_id if dev_cfg else None)
+            reading = parse_registry(result.text, phone_id=phone_id, lte_sinr_unit=unit)
         except Exception as exc:  # parse_registry seharusnya tidak melempar, tapi tetap dijaga
             log.exception("%s: parser error", serial)
             reading = SignalReading(reason=f"error parser: {exc!r}")
         operator = resolve_operator(serial, dev_cfg, result.prop_alpha, reading)
         state.operator = operator
+
+        raw = reading.sinr_raw
+        if (
+            _configured_unit(dev_cfg) == "auto" and unit == SINR_UNIT_DB
+            and reading.rat == "LTE" and reading.sinr_unit == SINR_UNIT_DB
+            and raw is not None and SINR_DB_GUARD[0] < abs(raw) <= SINR_DB_GUARD[1]
+        ):
+            state.sinr_forced_deci = True
+            detail = (
+                f"HP {serial} (SDK {state.sdk if state.sdk is not None else '?'}) mengirim rssnr={raw}, "
+                "di luar rentang dB; satuan SINR LTE dipindah ke 0,1 dB untuk sesi ini. "
+                "Kalau ini benar, isi sinr_unit: deci_db di config."
+            )
+            log.warning("%s", detail)
+            self._event(operator, detail)
+            unit = self._sinr_unit(serial, dev_cfg, state)
+            reading = parse_registry(result.text, phone_id=phone_id, lte_sinr_unit=unit)
 
         row = {
             "ts": db.iso(now),
@@ -375,7 +453,16 @@ def probe(config: Config, adb: Adb, raw_store: RawStore, serial: str | None = No
             log.error("%s: gagal menyimpan output mentah: %s", info.serial, exc)
         dev_cfg = config.device(info.serial)
         pid = phone_id if phone_id is not None else (dev_cfg.phone_id if dev_cfg else None)
-        res.reading = parse_registry(text, phone_id=pid)
+        sdk = None
+        if _configured_unit(dev_cfg) == "auto":
+            try:
+                sdk = parse_sdk(adb.getprop(info.serial, SDK_PROP))
+            except AdbError:
+                pass
+        # SDK tidak diketahui -> None: parser menebak per sampel (cukup untuk sekali baca).
+        res.reading = parse_registry(
+            text, phone_id=pid, lte_sinr_unit=lte_sinr_unit(_configured_unit(dev_cfg), sdk)
+        )
         prop = None
         if not (dev_cfg and dev_cfg.operator):
             try:

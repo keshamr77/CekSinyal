@@ -12,6 +12,13 @@ Aturan RAT:
 - Lalu WCDMA, lalu GSM.
 - Tidak ada nilai valid: NONE, kecuali HP mengaku dalam layanan -> ok=False
   (kemungkinan parser tidak cocok; collector menyimpan output mentah).
+
+Satuan SINR LTE (rssnr): modem selalu melapor dalam 0,1 dB. AOSP baru mengonversinya ke dB
+mulai Android 11 (SDK 30, convertRssnrUnitFromTenDbToDB). Jadi Android 10 ke bawah = 0,1 dB,
+Android 11+ = dB. Satuannya tidak bisa ditebak dengan andal dari satu sampel (nilai mentah 25
+bisa 25 dB atau 2,5 dB), sehingga collector menentukannya per HP dari SDK dan mengirimnya lewat
+`lte_sinr_unit`. Format Android 9 (kunci `ss=` atau kolom posisi) selalu 0,1 dB. SINR NR (dB)
+tidak terpengaruh.
 """
 
 from __future__ import annotations
@@ -48,7 +55,13 @@ LTE_BANDS = (
     (38, 37750, 38249), (39, 38250, 38649), (40, 38650, 39649), (41, 39650, 41589),
 )
 
-MEASUREMENT_FIELDS = ("rat", "rsrp", "rsrq", "sinr", "rssi", "pci", "cell_id", "earfcn", "band")
+SINR_UNIT_DB = "db"
+SINR_UNIT_DECI_DB = "deci_db"
+SINR_UNITS = (SINR_UNIT_DB, SINR_UNIT_DECI_DB)
+
+MEASUREMENT_FIELDS = (
+    "rat", "rsrp", "rsrq", "sinr", "rssi", "pci", "cell_id", "earfcn", "band", "sinr_raw", "sinr_unit",
+)
 
 
 @dataclass
@@ -62,6 +75,8 @@ class SignalReading:
     cell_id: int | None = None
     earfcn: int | None = None
     band: int | None = None
+    sinr_raw: int | None = None
+    sinr_unit: str | None = None
     ok: bool = False
     reason: str | None = None
     in_service: bool | None = None
@@ -85,6 +100,8 @@ class _Sig:
     sinr: float | None = None
     rssi: int | None = None
     rscp: int | None = None
+    sinr_raw: int | None = None
+    sinr_unit: str | None = None
 
 
 # ---------------------------------------------------------------- helper umum
@@ -119,14 +136,23 @@ def _rssi(value: int | None) -> int | None:
     return None
 
 
-def _lte_sinr(value: int | None, legacy_units: bool) -> float | None:
-    """RSSNR LTE. Android 9 ke bawah memakai satuan 0,1 dB; Android 10+ memakai dB."""
+def _lte_sinr(value: int | None, unit: str | None) -> tuple[float | None, str | None]:
+    """RSSNR LTE -> (SINR dalam dB, satuan yang dipakai).
+
+    unit "deci_db" (Android 10 ke bawah): selalu dibagi 10. unit "db" (Android 11+): apa adanya.
+    unit None (info HP tidak ada, mis. test/`probe --file`): tebakan per sampel, dibagi 10 hanya
+    kalau nilai mentah di luar rentang dB. Tebakan ini salah untuk SINR Android 10 antara -2 dan
+    3 dB, jadi collector selalu memberikan unit.
+    """
     if value is None or value in UNAVAILABLE:
-        return None
+        return None, None
     v = float(value)
-    if legacy_units or (not SINR_LTE[0] <= v <= SINR_LTE[1] and -200 <= v <= 300):
+    if unit is None:
+        in_db_range = SINR_LTE[0] <= v <= SINR_LTE[1]
+        unit = SINR_UNIT_DB if in_db_range or not -200 <= v <= 300 else SINR_UNIT_DECI_DB
+    if unit == SINR_UNIT_DECI_DB:
         v = round(v / 10, 1)
-    return v if SINR_LTE[0] <= v <= SINR_LTE[1] else None
+    return (v if SINR_LTE[0] <= v <= SINR_LTE[1] else None), unit
 
 
 def _first(*values):
@@ -167,17 +193,22 @@ def _segment(text: str, marker: str) -> str | None:
 
 # ---------------------------------------------------------------- sinyal
 
-def _lte_signal(seg: str | None) -> _Sig:
+def _lte_signal(seg: str | None, sinr_unit: str | None) -> _Sig:
     if seg is None:
         return _Sig()
-    # Android 9: kunci `ss=` (ASU) dan rssnr dalam 0,1 dB.
-    legacy = _has_key("m?ss", seg) and not _has_key("m?rssi", seg)
+    # Android 9: kunci `ss=` (ASU) dan rssnr selalu dalam 0,1 dB.
+    if _has_key("m?ss", seg) and not _has_key("m?rssi", seg):
+        sinr_unit = SINR_UNIT_DECI_DB
+    raw = _int("m?rssnr|m?sinr|m?snr", seg)
+    sinr, unit = _lte_sinr(raw, sinr_unit)
     return _Sig(
         found=_has_key("m?rsrp", seg),
         rsrp=_valid(_int("m?rsrp", seg), RSRP_LTE),
         rsrq=_valid(_int("m?rsrq", seg), RSRQ_LTE),
-        sinr=_lte_sinr(_int("m?rssnr|m?sinr|m?snr", seg), legacy),
+        sinr=sinr,
         rssi=_first(_rssi(_int("m?rssi", seg)), _rssi(_int("m?ss", seg))),
+        sinr_raw=raw if unit else None,
+        sinr_unit=unit,
     )
 
 
@@ -186,6 +217,8 @@ def _nr_signal(seg: str | None) -> _Sig:
         return _Sig()
     sinr = _first(_valid(_int("m?ssSinr", seg), SINR_NR), _valid(_int("m?csiSinr", seg), SINR_NR))
     return _Sig(
+        sinr_raw=int(sinr) if sinr is not None else None,
+        sinr_unit=SINR_UNIT_DB if sinr is not None else None,
         found=_has_key("m?ssRsrp|m?csiRsrp", seg),
         rsrp=_first(_valid(_int("m?ssRsrp", seg), RSRP_NR), _valid(_int("m?csiRsrp", seg), RSRP_NR)),
         rsrq=_first(_valid(_int("m?ssRsrq", seg), RSRQ_NR), _valid(_int("m?csiRsrq", seg), RSRQ_NR)),
@@ -222,12 +255,15 @@ def _legacy_positional(sig_line: str) -> tuple[_Sig, _Sig] | None:
     if not m:
         return None
     v = [int(x) for x in m.group(1).split()]
+    sinr, unit = _lte_sinr(v[10], SINR_UNIT_DECI_DB)
     lte = _Sig(
         found=True,
         rsrp=_valid(v[8], RSRP_LTE),
         rsrq=_valid(v[9], RSRQ_LTE),
-        sinr=_lte_sinr(v[10], legacy_units=True),
+        sinr=sinr,
         rssi=_rssi(v[7]),
+        sinr_raw=v[10] if unit else None,
+        sinr_unit=unit,
     )
     gsm = _Sig(found=True, rssi=_rssi(v[0]))
     return lte, gsm
@@ -376,7 +412,7 @@ def split_phone_sections(text: str) -> list[tuple[int | None, str]]:
     return sections
 
 
-def _parse_section(section: str, phone_id: int | None) -> SignalReading:
+def _parse_section(section: str, phone_id: int | None, sinr_unit: str | None) -> SignalReading:
     base = {
         "phone_id": phone_id,
         "in_service": _service_state(section),
@@ -393,7 +429,7 @@ def _parse_section(section: str, phone_id: int | None) -> SignalReading:
             lte, gsm = legacy
             recognized = True
         else:
-            lte = _lte_signal(_segment(sig_line, "CellSignalStrengthLte"))
+            lte = _lte_signal(_segment(sig_line, "CellSignalStrengthLte"), sinr_unit)
             nr = _nr_signal(_segment(sig_line, "CellSignalStrengthNr"))
             wcdma = _wcdma_signal(_segment(sig_line, "CellSignalStrengthWcdma"))
             gsm = _gsm_signal(_segment(sig_line, "CellSignalStrengthGsm"))
@@ -404,7 +440,7 @@ def _parse_section(section: str, phone_id: int | None) -> SignalReading:
     # Cadangan: nilai sinyal dari CellInfo sel yang terdaftar.
     if lte.rsrp is None:
         for info in _registered_infos(section, "Lte"):
-            cand = _lte_signal(_segment(info, "CellSignalStrengthLte"))
+            cand = _lte_signal(_segment(info, "CellSignalStrengthLte"), sinr_unit)
             if cand.rsrp is not None:
                 lte, recognized = cand, True
                 break
@@ -426,11 +462,13 @@ def _parse_section(section: str, phone_id: int | None) -> SignalReading:
     if nr.rsrp is not None and (lte.rsrp is None or _SA_HINT.search(section)):
         return SignalReading(
             rat="NR", rsrp=nr.rsrp, rsrq=nr.rsrq, sinr=nr.sinr, ok=True,
+            sinr_raw=nr.sinr_raw, sinr_unit=nr.sinr_unit,
             **_identity(section, "NR"), **base,
         )
     if lte.rsrp is not None:
         return SignalReading(
             rat="LTE", rsrp=lte.rsrp, rsrq=lte.rsrq, sinr=lte.sinr, rssi=lte.rssi, ok=True,
+            sinr_raw=lte.sinr_raw, sinr_unit=lte.sinr_unit,
             nr_nsa=nr.rsrp is not None or bool(_NSA_HINT.search(section)),
             nr_rsrp=nr.rsrp, nr_sinr=nr.sinr,
             **_identity(section, "LTE"), **base,
@@ -445,20 +483,25 @@ def _parse_section(section: str, phone_id: int | None) -> SignalReading:
     return SignalReading(rat="NONE", ok=True, **base)
 
 
-def parse_registry(text: str, phone_id: int | None = None) -> SignalReading:
+def parse_registry(
+    text: str, phone_id: int | None = None, lte_sinr_unit: str | None = None
+) -> SignalReading:
     """Parse output `dumpsys telephony.registry` menjadi satu SignalReading.
 
     Untuk HP dual-SIM, `phone_id` memilih slot. Tanpa `phone_id`, dipilih slot yang
     berhasil di-parse dan punya sinyal, diutamakan yang koneksi datanya aktif.
-    Fungsi ini tidak melempar exception untuk input apa pun.
+    `lte_sinr_unit` ("db"/"deci_db") adalah satuan rssnr LTE HP ini; None = tebakan per sampel
+    (lihat _lte_sinr). Fungsi ini tidak melempar exception untuk teks apa pun.
     """
+    if lte_sinr_unit not in (None, *SINR_UNITS):
+        raise ValueError(f"lte_sinr_unit tidak dikenal: {lte_sinr_unit!r}")
     if not text or not text.strip():
         return SignalReading(reason="output kosong")
     sections = split_phone_sections(text)
     readings = []
     for pid, section in sections:
         try:
-            readings.append(_parse_section(section, pid))
+            readings.append(_parse_section(section, pid, lte_sinr_unit))
         except Exception as exc:  # parser harus toleran terhadap format aneh
             readings.append(SignalReading(phone_id=pid, reason=f"error parser: {exc!r}"))
 

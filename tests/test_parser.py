@@ -222,3 +222,68 @@ def test_identity_earfcn_takes_precedence_over_channel_number():
     text = _masked_lte("mChannelNumber=1850").replace("mBandwidth=2147483647", "mEarfcn=3500 mBandwidth=2147483647")
     r = parse_registry(text)
     assert (r.earfcn, r.band) == (3500, 8)
+
+
+def _lte_rssnr(rssnr: int) -> str:
+    return (
+        "  Phone Id=0\n"
+        "    mServiceState={mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE)}\n"
+        "    mSignalStrength=SignalStrength:{mLte=CellSignalStrengthLte: rssi=-70 rsrp=-101 "
+        f"rsrq=-11 rssnr={rssnr} cqi=0 ta=0 level=3,mNr=Invalid}}\n"
+    )
+
+
+@pytest.mark.parametrize("rssnr,sinr", [(25, 2.5), (-15, -1.5), (55, 5.5), (300, 30.0), (-200, -20.0), (2147483647, None)])
+def test_lte_sinr_deci_db(rssnr, sinr):
+    # Android 10 ke bawah: rssnr selalu dalam 0,1 dB, termasuk nilai kecil yang terlihat seperti dB.
+    r = parse_registry(_lte_rssnr(rssnr), lte_sinr_unit="deci_db")
+    assert r.sinr == sinr
+    assert (r.sinr_raw, r.sinr_unit) == ((rssnr, "deci_db") if sinr is not None else (None, None))
+
+
+@pytest.mark.parametrize("rssnr,sinr", [(5, 5.0), (25, 25.0), (-15, -15.0), (55, None), (2147483647, None)])
+def test_lte_sinr_db(rssnr, sinr):
+    r = parse_registry(_lte_rssnr(rssnr), lte_sinr_unit="db")
+    assert r.sinr == sinr
+    if rssnr != 2147483647:
+        assert (r.sinr_raw, r.sinr_unit) == (rssnr, "db")  # nilai mentah tetap disimpan
+
+
+@pytest.mark.parametrize("rssnr,sinr,unit", [(25, 25.0, "db"), (55, 5.5, "deci_db"), (999, None, "db")])
+def test_lte_sinr_without_unit_guesses_per_sample(rssnr, sinr, unit):
+    r = parse_registry(_lte_rssnr(rssnr))
+    assert (r.sinr, r.sinr_unit) == (sinr, unit)
+
+
+def test_real_redmi9c_deci_db():
+    r = parse_registry(_read("real_redmi9c_android10.txt"), lte_sinr_unit="deci_db")
+    assert (r.sinr, r.sinr_raw, r.sinr_unit) == (5.5, 55, "deci_db")
+
+
+def test_cellinfo_fallback_uses_unit():
+    text = (
+        "    mServiceState={mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE)}\n"
+        "    mSignalStrength=SignalStrength:{mLte=Invalid,mNr=Invalid}\n"
+        "    mCellInfo=[CellInfoLte:{mRegistered=YES CellIdentityLte:{ mCi=123 } "
+        "CellSignalStrengthLte: rssi=-70 rsrp=-101 rsrq=-12 rssnr=25 level=2}]\n"
+    )
+    assert parse_registry(text, lte_sinr_unit="deci_db").sinr == 2.5
+
+
+@pytest.mark.parametrize("unit", [None, "db", "deci_db"])
+def test_android9_legacy_always_deci_db(unit):
+    r = parse_registry(_read("synthetic_lte_android9_legacy.txt"), lte_sinr_unit=unit)
+    assert (r.sinr, r.sinr_raw, r.sinr_unit) == (4.5, 45, "deci_db")
+
+
+@pytest.mark.parametrize("unit", [None, "db", "deci_db"])
+def test_nr_sinr_not_affected_by_lte_unit(unit):
+    sa = parse_registry(_read("synthetic_nr_sa_android14.txt"), lte_sinr_unit=unit)
+    assert (sa.rat, sa.sinr, sa.sinr_unit) == ("NR", 18.0, "db")
+    nsa = parse_registry(_read("synthetic_nr_nsa_android12.txt"), lte_sinr_unit=unit)
+    assert nsa.nr_sinr == 8.0
+
+
+def test_invalid_unit_raises():
+    with pytest.raises(ValueError):
+        parse_registry(_lte_rssnr(5), lte_sinr_unit="dB?")

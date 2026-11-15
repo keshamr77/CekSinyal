@@ -22,5 +22,10 @@ devices:
   - serial: R58M12345AB
     operator: Telkomsel
     # phone_id: 0   # opsional, untuk HP dual-SIM: slot SIM yang dibaca (0 atau 1)
+    # sinr_unit: auto  # opsional, satuan rssnr LTE di dumpsys HP ini:
+    #   auto    = dari versi Android (getprop ro.build.version.sdk): Android 10 ke bawah
+    #             (SDK <= 29) memakai 0,1 dB, Android 11+ memakai dB (bawaan)
+    #   db      = paksa dB (nilai rssnr dipakai apa adanya)
+    #   deci_db = paksa 0,1 dB (nilai rssnr selalu dibagi 10)
   - serial: 9A1B2C3D
     operator: Indosat

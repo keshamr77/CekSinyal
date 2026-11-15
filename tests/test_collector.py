@@ -5,7 +5,9 @@ import pytest
 
 from ceksinyal import db
 from ceksinyal.collector.adb import AdbError, AdbNotFoundError, DeviceInfo
-from ceksinyal.collector.service import Collector, RawStore, pick_operator_alpha, probe
+from ceksinyal.collector.service import (
+    SDK_PROP, Collector, RawStore, lte_sinr_unit, pick_operator_alpha, probe,
+)
 from ceksinyal.config import Config, DeviceConfig
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -18,6 +20,8 @@ class FakeAdb:
         self.listing: list[DeviceInfo] | Exception = []
         self.outputs: dict[str, str | Exception] = {}
         self.props: dict[str, str] = {}
+        self.sdk: dict[str, str] = {}
+        self.sdk_calls: list[str] = []
         self.dumps: list[str] = []
 
     def connect(self, serial, text=LTE_TEXT, state="device"):
@@ -42,6 +46,11 @@ class FakeAdb:
         return out
 
     def getprop(self, serial, key):
+        if key == SDK_PROP:
+            self.sdk_calls.append(serial)
+            if serial not in self.sdk:
+                raise AdbError("getprop gagal")
+            return self.sdk[serial]
         if serial not in self.props:
             raise AdbError("getprop gagal")
         return self.props[serial]
@@ -243,3 +252,108 @@ def test_probe_saves_raw_with_prefix(env):
 ])
 def test_pick_operator_alpha(prop, phone_id, expected):
     assert pick_operator_alpha(prop, phone_id) == expected
+
+
+def _lte_rssnr(rssnr: int) -> str:
+    return (
+        "  Phone Id=0\n"
+        "    mServiceState={mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE)}\n"
+        "    mSignalStrength=SignalStrength:{mLte=CellSignalStrengthLte: rssi=-70 rsrp=-101 "
+        f"rsrq=-11 rssnr={rssnr} cqi=0 ta=0 level=3,mNr=Invalid}}\n"
+    )
+
+
+def _sinr_rows(conn):
+    return [r["sinr"] for r in _rows(conn, "measurements")]
+
+
+def _feed(collector, adb, clock, serial, values):
+    for v in values:
+        adb.outputs[serial] = _lte_rssnr(v)
+        collector.tick()
+        clock.advance(10)
+
+
+@pytest.mark.parametrize("configured,sdk,unit", [
+    ("auto", 29, "deci_db"), ("auto", 28, "deci_db"), ("auto", 30, "db"), ("auto", 34, "db"),
+    ("auto", None, None), ("db", 29, "db"), ("deci_db", 34, "deci_db"),
+])
+def test_lte_sinr_unit(configured, sdk, unit):
+    assert lte_sinr_unit(configured, sdk) == unit
+
+
+def test_android10_device_uses_deci_db(env):
+    cfg, conn, adb, clock, collector = env
+    cfg.devices = cfg.devices[:1]
+    adb.connect("HP1")
+    adb.sdk["HP1"] = "29"
+    _feed(collector, adb, clock, "HP1", [25, -15, 55, 300, 2147483647])
+    assert _sinr_rows(conn) == [2.5, -1.5, 5.5, 30.0, None]
+    assert adb.sdk_calls == ["HP1"]  # SDK dibaca sekali per HP
+    assert _rows(conn, "events") == []
+
+
+def test_android11_device_uses_db(env):
+    cfg, conn, adb, clock, collector = env
+    cfg.devices = cfg.devices[:1]
+    adb.connect("HP1")
+    adb.sdk["HP1"] = "30\n"
+    _feed(collector, adb, clock, "HP1", [5, 25])
+    assert _sinr_rows(conn) == [5.0, 25.0]
+
+
+def test_db_device_with_out_of_range_rssnr_switches_to_deci_db(env):
+    cfg, conn, adb, clock, collector = env
+    cfg.devices = cfg.devices[:1]
+    adb.connect("HP1")
+    adb.sdk["HP1"] = "33"
+    _feed(collector, adb, clock, "HP1", [5, 55, 25, 70])
+    # Sampel pemicu langsung dihitung ulang; setelahnya permanen 0,1 dB.
+    assert _sinr_rows(conn) == [5.0, 5.5, 2.5, 7.0]
+    events = _rows(conn, "events")
+    assert len(events) == 1
+    assert events[0]["type"] == "collector_error" and events[0]["operator"] == "Telkomsel"
+    assert "rssnr=55" in events[0]["detail"] and "0,1 dB" in events[0]["detail"]
+
+
+def test_unknown_sdk_uses_db_with_guard_and_retries_getprop(env):
+    cfg, conn, adb, clock, collector = env
+    cfg.devices = cfg.devices[:1]
+    adb.connect("HP1")
+    _feed(collector, adb, clock, "HP1", [12, 45, 12])
+    assert _sinr_rows(conn) == [12.0, 4.5, 1.2]
+    assert len(adb.sdk_calls) == 3  # getprop gagal -> dicoba lagi tiap putaran
+    adb.sdk["HP1"] = "29"
+    _feed(collector, adb, clock, "HP1", [12, 12])
+    assert len(adb.sdk_calls) == 4
+
+
+def test_garbage_rssnr_does_not_trigger_guard(env):
+    cfg, conn, adb, clock, collector = env
+    cfg.devices = cfg.devices[:1]
+    adb.connect("HP1")
+    adb.sdk["HP1"] = "33"
+    _feed(collector, adb, clock, "HP1", [999, 25])
+    assert _sinr_rows(conn) == [None, 25.0]
+    assert _rows(conn, "events") == []
+
+
+def test_config_unit_override(env):
+    cfg, conn, adb, clock, collector = env
+    cfg.devices = [DeviceConfig("HP1", operator="Telkomsel", sinr_unit="deci_db"),
+                   DeviceConfig("HP2", operator="Indosat", sinr_unit="db")]
+    adb.connect("HP1", text=_lte_rssnr(25))
+    adb.connect("HP2", text=_lte_rssnr(55))
+    adb.sdk = {"HP1": "33", "HP2": "29"}
+    collector.tick()
+    rows = {r["device_serial"]: r["sinr"] for r in _rows(conn, "measurements")}
+    assert rows == {"HP1": 2.5, "HP2": None}  # override tidak ditimpa pengaman
+    assert adb.sdk_calls == [] and _rows(conn, "events") == []
+
+
+def test_probe_uses_sdk(env):
+    cfg, conn, adb, clock, collector = env
+    adb.connect("HP1", text=_lte_rssnr(25))
+    adb.sdk["HP1"] = "29"
+    (res,) = probe(cfg, adb, RawStore(cfg.raw_dir))
+    assert (res.reading.sinr, res.reading.sinr_unit) == (2.5, "deci_db")
