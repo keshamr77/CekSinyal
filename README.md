@@ -3,7 +3,7 @@
 Pemantau sinyal seluler untuk tugas besar ET4132 Kapita Selekta Teknik Telekomunikasi (ITB, Kelompok 2).
 HP Android disambungkan ke laptop lewat USB; laptop membaca kualitas sinyal lewat ADB dan menyimpannya ke SQLite.
 
-Status: **collector** (`devices`, `probe`, `collect`), **diagnosis** (`diagnose`), **uji kecepatan** (`interfaces`, `speedtest`), dan **laporan bukti** (`report`) sudah jalan. Uploader dan bot belum.
+Status: **collector** (`devices`, `probe`, `collect`), **diagnosis** (`diagnose`), **uji kecepatan** (`interfaces`, `speedtest`), **laporan bukti** (`report`), dan **uploader Google Sheets** (`upload`) sudah jalan. Bot belum.
 
 ## Persiapan
 
@@ -38,6 +38,7 @@ Status: **collector** (`devices`, `probe`, `collect`), **diagnosis** (`diagnose`
 | `python -m ceksinyal speedtest [--full] [--no-save]` | Uji kecepatan sekali sekarang untuk tiap HP yang punya `source_ip` (ringan; `--full` = speedtest-cli). |
 | `python -m ceksinyal diagnose [--rerun] [--db <path>] [--kos <nama>]` | Diagnosis per jendela 10 menit untuk data yang belum didiagnosis; `--rerun` menghapus hasil lama dan menghitung ulang semuanya (setelah ambang diubah). |
 | `python -m ceksinyal report --kos <nama> [--db <path>] [--out <folder>] [--since <tgl>] [--until <tgl>]` | Laporan bukti satu kos: file Markdown dan HTML di `data/reports/`. |
+| `python -m ceksinyal upload` | Kirim sekarang semua baris yang belum ter-upload ke Google Sheets. |
 | `python -m ceksinyal fix-sinr [--db <path>] [--serial <serial>] [--dry-run]` | Koreksi SINR LTE lama yang tercatat 10x lipat (HP Android 10, lihat di bawah). Selalu coba `--dry-run` dulu. |
 | `python -m ceksinyal fix-band [--db <path>] [--dry-run]` | Koreksi band LTE lama yang tidak cocok dengan EARFCN (lihat "Identitas sel"). Selalu coba `--dry-run` dulu. |
 
@@ -67,6 +68,7 @@ Kode keluar `probe`: 0 = semua berhasil, 1 = HP/ADB bermasalah, 2 = ada yang par
 | `devices[].phone_id` | otomatis | Slot SIM untuk HP dual-SIM (0/1). Kalau kosong, dipilih slot yang punya sinyal dan koneksi data aktif. |
 | `devices[].source_ip` | – | IP laptop di interface USB tethering HP ini. Wajib untuk uji kecepatan. |
 | `speedtest.*` | lihat "Uji kecepatan" | Jadwal dan target uji kecepatan. |
+| `sheets.*` | lihat "Dashboard Google Sheets" | Spreadsheet bersama dan cara upload. |
 | `devices[].sinr_unit` | `auto` | Satuan rssnr LTE di dumpsys HP ini: `auto` (dari versi Android), `db`, atau `deci_db` (0,1 dB). Lihat "Satuan SINR LTE". |
 
 Kalau `devices` kosong, collector memakai HP apa saja yang terhubung (maks. `max_devices`).
@@ -193,6 +195,37 @@ Hal yang perlu diketahui:
   jadi akan dikirim lagi ke Google Sheets (baris lama di sheet tidak terhapus otomatis).
 - **Rekomendasi operator**: kalau satu kos punya dua operator, dipilih yang porsi jendela Normal-nya tertinggi; kalau
   sama, yang median RSRP-nya lebih tinggi.
+
+## Dashboard Google Sheets
+
+Semua laptop anggota mengirim data ke **satu spreadsheet bersama**; tiap baris membawa kolom `kos`, jadi data antar-kos
+bisa dibandingkan dengan pivot/grafik di Sheets.
+
+Menyiapkan (sekali untuk tim):
+
+1. Di Google Cloud Console: buat project, aktifkan **Google Sheets API**, buat **service account**, lalu buat kunci
+   JSON untuknya. Bagikan file JSON itu ke anggota lewat jalur pribadi. **Jangan di-commit** (pola `*credentials*.json`
+   dan `service_account*.json` sudah ada di `.gitignore`; simpan dengan nama seperti itu).
+2. Buat satu Google Spreadsheet, lalu *Share* ke alamat email service account (`...@...iam.gserviceaccount.com`)
+   sebagai **Editor**.
+3. Di tiap laptop: isi `.env` dengan `GOOGLE_CREDENTIALS_FILE=<path file JSON>` (relatif terhadap folder config) dan isi
+   `sheets.spreadsheet_id` di `config.yaml` (bagian URL di antara `/d/` dan `/edit`), atau `GOOGLE_SPREADSHEET_ID` di `.env`.
+4. Cek dengan `python -m ceksinyal upload`.
+
+Cara kerja (store-and-forward):
+
+- Semua data disimpan dulu ke SQLite dengan `uploaded=0`. Uploader mengirim per batch, dan menandai `uploaded=1`
+  **hanya setelah** Sheets menerima batch itu. Internet putus → baris tetap `0` dan dikirim di putaran berikutnya;
+  tidak ada data yang hilang. Jaminannya "minimal sekali": pada kasus langka (koneksi putus tepat setelah Sheets
+  menerima), satu batch bisa muncul dua kali di sheet.
+- Tab dibuat otomatis berikut baris judulnya: `measurements`, `speedtests`, `diagnoses`.
+- `measurements` dikirim sebagai **rata-rata per menit per HP** supaya hemat kuota API: `ts_minute` (UTC), `kos`,
+  `device_serial`, `operator`, `n_samples`, `n_no_service`, `n_parse_failed`, `rat` (terbanyak), `rsrp_avg`, `rsrp_min`,
+  `rsrq_avg`, `sinr_avg`, lalu `pci`/`cell_id`/`earfcn`/`band` terakhir di menit itu. Menit yang sedang berjalan baru
+  dikirim setelah selesai. `sheets.aggregate_measurements: false` mengirim setiap sampel apa adanya.
+- Waktu di sheet dalam UTC ISO 8601 (WIB = UTC+7).
+- `diagnose --rerun` membuat baris diagnosis baru (`uploaded=0`), jadi baris diagnosis lama di sheet perlu dihapus manual
+  kalau tidak ingin ganda.
 
 ## Laporan bukti
 

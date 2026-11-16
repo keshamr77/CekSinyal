@@ -46,6 +46,15 @@ speedtest:
   timeout_seconds: 30
   full_timeout_seconds: 180
 
+# Dashboard bersama di Google Sheets. Aktif kalau spreadsheet_id terisi dan GOOGLE_CREDENTIALS_FILE ada di .env.
+# File kredensial service account TIDAK ditulis di sini dan tidak di-commit.
+sheets:
+  enabled: true
+  spreadsheet_id: ""           # bagian URL di antara /d/ dan /edit (atau GOOGLE_SPREADSHEET_ID di .env)
+  interval_minutes: 5          # jeda antar-upload saat `run`
+  batch_size: 500              # baris per permintaan API
+  aggregate_measurements: true # true = rata-rata per menit per HP; false = setiap sampel
+
 # HP yang dibaca. Serial dilihat dengan: python -m ceksinyal devices
 # Kalau daftar ini kosong, collector memakai HP apa saja yang terhubung (maks. max_devices)
 # dan nama operator diambil dari getprop gsm.operator.alpha.

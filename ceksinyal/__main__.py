@@ -386,6 +386,43 @@ def cmd_report(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
     return 0
 
 
+def sheets_problem(cfg: Config) -> str | None:
+    """Alasan uploader Sheets tidak aktif, atau None kalau siap."""
+    s = cfg.sheets
+    if not s.enabled:
+        return "sheets.enabled: false di config"
+    if not s.spreadsheet_id:
+        return "spreadsheet_id belum diisi (config sheets.spreadsheet_id atau GOOGLE_SPREADSHEET_ID di .env)"
+    if not s.credentials_file:
+        return "file kredensial belum diisi (GOOGLE_CREDENTIALS_FILE di .env)"
+    if not s.credentials_file.is_file():
+        return f"file kredensial tidak ditemukan: {s.credentials_file}"
+    return None
+
+
+def cmd_upload(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    from .uploader.sheets import make_uploader
+
+    problem = sheets_problem(cfg)
+    if problem:
+        log.error("uploader Sheets belum siap: %s", problem)
+        return 1
+    try:
+        conn = db.connect(cfg.database)
+    except Exception as exc:
+        log.error("tidak bisa membuka database %s: %s", cfg.database, exc)
+        return 1
+    try:
+        uploader = make_uploader(cfg, conn)
+        sent = uploader.upload_pending()
+        left = uploader.pending()
+        _print_table(["TAB", "TERKIRIM (baris sheet)", "MASIH TERTUNDA (baris lokal)"],
+                     [[t, "GAGAL" if n < 0 else str(n), str(left[t])] for t, n in sent.items()])
+        return 1 if any(n < 0 for n in sent.values()) else 0
+    finally:
+        conn.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", default=argparse.SUPPRESS, help="path config.yaml")
@@ -451,6 +488,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-diagnose", action="store_true",
                    help="jangan mendiagnosis jendela yang belum didiagnosis sebelum membuat laporan")
     p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("upload", parents=[common], help="kirim baris yang belum ter-upload ke Google Sheets sekarang")
+    p.set_defaults(func=cmd_upload)
     return parser
 
 

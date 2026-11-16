@@ -11,7 +11,7 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 | M2 | Diagnosis (`diagnosis/rules.py`, `engine.py`, `diagnose [--rerun]`) | selesai |
 | M3 | `interfaces` + speedtest ringan/penuh | selesai (perlu uji manual dengan tethering) |
 | M4 | `report --kos` (Markdown + HTML) | selesai |
-| M5 | Uploader Google Sheets (store-and-forward) | belum |
+| M5 | Uploader Google Sheets (store-and-forward) | selesai (perlu uji manual dengan spreadsheet asli) |
 | M6 | Bot Telegram (alert + ringkasan harian) | belum |
 | M7 | `run`, `selftest`, README lengkap | belum |
 
@@ -123,6 +123,19 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
   lama (sinr_raw kosong) + pola salah skala, band tidak cocok EARFCN, jeda data, belum ada speedtest, rekaman < 1 jam,
   baris raw_ok=0.
 
+### M5
+- `uploaded=1` ditandai per batch tepat setelah `append_rows` batch itu berhasil; kegagalan apa pun (exception dari
+  backend) menghentikan putaran itu tanpa menandai, dan tabel berikutnya menunggu putaran berikut.
+- Jaminan "minimal sekali" (bisa ganda kalau jawaban API hilang setelah Sheets menerima); tidak ada dedup di sisi sheet.
+- measurements: bawaan rata-rata per menit per HP (kunci: menit, kos, device_serial, operator). Semua baris sumber di
+  menit itu ditandai ter-upload bersama. Menit yang sedang berjalan ditahan sampai selesai.
+- Maksimal 20 batch per tabel per putaran (kuota tulis Sheets 60/menit); sisanya di putaran berikut.
+- Scope service account hanya `spreadsheets` (tanpa Drive), jadi spreadsheet dibuka dengan ID, bukan nama.
+- Sheets aktif hanya kalau `spreadsheet_id` DAN `GOOGLE_CREDENTIALS_FILE` ada; kalau tidak, `run` jalan tanpa upload.
+- `gspread` diimpor saat dipakai saja, jadi perintah lain tetap jalan tanpa paket itu.
+- Perintah tambahan: `upload` (kirim sekali sekarang).
+- Dependensi baru: `gspread`.
+
 ## Hasil verifikasi dengan data asli
 
 ### M1
@@ -160,6 +173,11 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 - [ ] M3: di Linux/Orange Pi, cek apakah perlu policy routing supaya `source_ip` keluar lewat interface tethering.
 - [ ] M3: URL unduhan bawaan (Cloudflare) bisa diakses dari semua operator; kalau tidak, ganti `speedtest.download_url`.
 - [ ] M3: perkiraan pemakaian kuota uji penuh per jam; matikan (`full_interval_minutes: 0`) kalau terlalu boros.
+- [ ] M5: buat service account + spreadsheet bersama, isi `.env`/config, jalankan `upload`: tab dan judul kolom dibuat,
+      baris masuk, dan `uploaded` menjadi 1 di SQLite.
+- [ ] M5: matikan internet saat `run`, nyalakan lagi: baris tertunda terkirim semua, tidak ada yang hilang.
+- [ ] M5: dua laptop (dua kos) mengirim ke spreadsheet yang sama bersamaan.
+- [ ] M5: jalan seharian: cek tidak kena batas kuota API (429) dengan interval 5 menit.
 - [ ] M4: buka laporan HTML di HP dan cetak ke PDF; cek terbaca oleh orang non-teknis (pemilik kos).
 - [ ] M4: laporan dengan dua operator di kos yang sama dan data ≥ 1 hari (grafik garis 2 warna, sumbu waktu berhari-hari).
 - [ ] M2: jalankan `diagnose` pada data ≥ 1 jam dari dua operator di kos yang sama dan cek rekomendasi operatornya masuk akal.

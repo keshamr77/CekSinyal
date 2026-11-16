@@ -85,7 +85,8 @@ Kalau dua operator ada di kos yang sama, buat juga rekomendasi: operator dengan 
 ## Dashboard dan store-and-forward
 - Backend utama: Google Sheets (service account, library `gspread`). Satu spreadsheet bersama, tab `measurements`, `speedtests`, `diagnoses`. Setiap baris membawa kolom `kos`.
 - Uploader mengirim baris `uploaded=0` per batch, lalu menandai `uploaded=1` hanya setelah berhasil. Internet putus tidak boleh menghilangkan data.
-- Untuk measurements, boleh kirim versi rata-rata per menit supaya tidak melebihi kuota API.
+- Untuk measurements, boleh kirim versi rata-rata per menit supaya tidak melebihi kuota API (bawaan: `sheets.aggregate_measurements: true`, per menit per HP; menit yang masih berjalan belum dikirim).
+- Spreadsheet ID dari `sheets.spreadsheet_id` (config) atau `GOOGLE_SPREADSHEET_ID` (.env); file kredensial dari `GOOGLE_CREDENTIALS_FILE` (.env). `python -m ceksinyal upload` mengirim sekali sekarang.
 
 ## Bot Telegram
 - Pakai HTTP API langsung (`requests` ke sendMessage). Token dan chat ID dari `.env`.
