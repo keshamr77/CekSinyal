@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS events (
     operator TEXT,
     type TEXT NOT NULL,
     detail TEXT,
-    notified INTEGER NOT NULL DEFAULT 0
+    notified INTEGER NOT NULL DEFAULT 0,
+    uploaded INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events (ts);
 """
@@ -87,6 +88,7 @@ MEASUREMENT_COLUMNS = (
 ADDED_COLUMNS = (
     ("measurements", "sinr_raw", "INTEGER"),  # rssnr/sinr mentah dari dumpsys
     ("measurements", "sinr_unit", "TEXT"),  # satuan sinr_raw: 'db' atau 'deci_db' (0,1 dB)
+    ("events", "uploaded", "INTEGER NOT NULL DEFAULT 0"),  # tab events di Sheets (untuk dashboard)
     ("diagnoses", "detail", "TEXT"),  # catatan aturan, mis. "handover: tidak tersedia"
 )
 

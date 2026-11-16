@@ -91,6 +91,26 @@ class TelegramConfig:
         return bool(self.enabled and self.token and self.chat_id)
 
 
+DASHBOARD_MODES = ("auto", "sqlite", "sheets")
+
+
+@dataclass
+class DashboardConfig:
+    mode: str = "auto"  # auto = sheets kalau spreadsheet dikonfigurasi, selain itu sqlite
+    public: bool = True  # mode publik: nama kos selalu diganti alias
+    kos_aliases: dict[str, str] = field(default_factory=dict)  # nama kos asli -> alias (mis. "Kos A")
+    stale_minutes: float = 15.0      # collector dianggap diam kalau tidak ada data selama ini
+    cache_ttl_seconds: int = 300     # jeda baca ulang sumber data (hemat kuota baca Sheets)
+    # Batas kategori "Baik". Batas "Buruk" RSRP dan SINR memakai ambang diagnosis
+    # (diagnosis.rsrp_weak_dbm, diagnosis.sinr_interference_db) supaya konsisten.
+    rsrp_good_dbm: float = -100.0
+    rsrq_good_db: float = -10.0
+    rsrq_poor_db: float = -15.0
+    sinr_good_db: float = 10.0
+    download_good_mbps: float = 10.0
+    download_poor_mbps: float = 2.0
+
+
 @dataclass
 class Config:
     kos: str = KOS_UNSET
@@ -104,6 +124,7 @@ class Config:
     speedtest: SpeedtestConfig = field(default_factory=SpeedtestConfig)
     sheets: SheetsConfig = field(default_factory=SheetsConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    dashboard: DashboardConfig = field(default_factory=DashboardConfig)
     devices: list[DeviceConfig] = field(default_factory=list)
     source: Path | None = None
 
@@ -221,6 +242,18 @@ def _build(data: dict[str, Any], base: Path, source: Path | None) -> Config:
         r"([01]?\d|2[0-3]):[0-5]\d", cfg.telegram.daily_summary_time
     ):
         raise ConfigError("telegram.daily_summary_time harus berformat JJ:MM (mis. \"21:00\")")
+
+    dash = _section(data, "dashboard")
+    _fill(cfg.dashboard, dash, "dashboard", skip=("kos_aliases",), minimums={
+        "stale_minutes": 1, "cache_ttl_seconds": 0, "download_good_mbps": 0, "download_poor_mbps": 0,
+    })
+    cfg.dashboard.mode = cfg.dashboard.mode.lower() or "auto"
+    if cfg.dashboard.mode not in DASHBOARD_MODES:
+        raise ConfigError(f"dashboard.mode harus salah satu dari {', '.join(DASHBOARD_MODES)}")
+    aliases = dash.get("kos_aliases") or {}
+    if not isinstance(aliases, dict):
+        raise ConfigError("dashboard.kos_aliases harus berupa mapping nama kos -> alias")
+    cfg.dashboard.kos_aliases = {str(k): str(v) for k, v in aliases.items() if v}
 
     devices = data.get("devices") or []
     if not isinstance(devices, list):
