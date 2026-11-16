@@ -230,7 +230,7 @@ def svg_histogram(bins: list[tuple[float, float, int]], label: str, unit: str, t
         anchor = "start" if x < left + plot_w / 2 else "end"
         dx = 4 if anchor == "start" else -4
         parts.append(f'<line class="threshold" x1="{x:.1f}" x2="{x:.1f}" y1="{top - 6}" y2="{base}"/>')
-        parts.append(f'<text class="tick" x="{x + dx:.1f}" y="{top - 2}" text-anchor="{anchor}">ambang {threshold:g}</text>')
+        parts.append(f'<text class="tick" x="{x + dx:.1f}" y="{top - 2}" text-anchor="{anchor}">ambang {num(threshold, 0)}</text>')
     parts.append(f'<text class="tick" x="{w - right}" y="{h - 2}" text-anchor="end">{_e(unit)}</text>')
     parts.append("</svg>")
     return "".join(parts)
@@ -300,7 +300,7 @@ def svg_rsrp_lines(data: ReportData, weak: float) -> str:
         parts.append(f'<text class="tick" x="{left - 6}" y="{y_of(v) + 3.5:.1f}" text-anchor="end">{label}</text>')
     parts += _time_axis(scale, data.tz, top + plot_h)
     parts.append(f'<line class="threshold" x1="{left}" x2="{w - right}" y1="{y_of(weak):.1f}" y2="{y_of(weak):.1f}"/>')
-    parts.append(f'<text class="tick" x="{w - right}" y="{y_of(weak) - 4:.1f}" text-anchor="end">ambang cakupan lemah {weak:g} dBm</text>')
+    parts.append(f'<text class="tick" x="{w - right}" y="{y_of(weak) - 4:.1f}" text-anchor="end">ambang cakupan lemah {num(weak, 0, "dBm")}</text>')
 
     payload = []
     for idx, op in enumerate(ops, start=1):
@@ -381,7 +381,7 @@ p{margin:8px 0}.meta{color:var(--ink2)}.muted{color:var(--muted)}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
 th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--grid);vertical-align:top}
-th{color:var(--ink2);font-weight:600;white-space:nowrap}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+th{color:var(--ink2);font-weight:600;white-space:nowrap}table.compact{font-size:12.5px}table.compact th,table.compact td{padding:6px 7px;white-space:nowrap}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
 .charts figure,.wide{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;position:relative}
 figcaption{font-weight:600;font-size:13.5px;margin-bottom:4px}
@@ -450,14 +450,14 @@ document.querySelectorAll('.linechart').forEach(function (svg) {
 """
 
 
-def _html_table(headers: list[str], rows: list[list[str]], numeric: set[int] = frozenset()) -> str:
+def _html_table(headers: list[str], rows: list[list[str]], numeric: set[int] = frozenset(), cls: str = "") -> str:
     def cells(tag: str, row: list[str]) -> str:
         return "".join(
             f"<{tag}{' class=n' if i in numeric else ''}>{_e(c)}</{tag}>" for i, c in enumerate(row)
         )
 
     body = "".join(f"<tr>{cells('td', r)}</tr>" for r in rows)
-    return f'<div class="scroll"><table><thead><tr>{cells("th", headers)}</tr></thead><tbody>{body}</tbody></table></div>'
+    return f'<div class="scroll"><table class="{cls}"><thead><tr>{cells("th", headers)}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
 def _tile(label: str, value: str) -> str:
@@ -493,7 +493,7 @@ def render_html(data: ReportData) -> str:
         out.append(_tile("Median unduh", num(op.speed.median_download, 1, "Mbps")))
         out.append("</div>")
     headers, rows = _summary_rows(data)
-    out.append(_html_table(headers, rows, numeric={1, 4, 5, 6, 7, 8, 9}))
+    out.append(_html_table(headers, rows, numeric={1, 4, 5, 6, 7, 8, 9}, cls="compact"))
     rec = data.recommendation
     if rec.best:
         out.append(f'<div class="card"><b>Rekomendasi operator: {_e(rec.best)}.</b> {_e(rec.reason)}</div>')

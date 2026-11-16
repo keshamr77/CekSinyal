@@ -227,7 +227,7 @@ Kalau `devices` kosong, collector memakai HP apa saja yang terhubung (maks. `max
 - **Parsing gagal** (format tidak dikenali, atau HP dalam layanan tapi tidak ada RSRP): baris tetap disimpan
   dengan `raw_ok=0` dan `rat` kosong, output mentah disimpan ke `data/raw/<serial>_<waktu>.txt`
   (maks. satu per HP per jam, juga setelah restart), dan dicatat sebagai event `collector_error`.
-  Diagnosis nanti sebaiknya hanya memakai baris `raw_ok=1`.
+  Diagnosis hanya memakai baris `raw_ok=1`.
 - **HP terputus / unauthorized / adb hilang**: dicatat sekali sebagai event `collector_error` saat status
   berubah, lalu dicoba lagi tiap putaran. Program tidak berhenti karena satu HP bermasalah.
 
