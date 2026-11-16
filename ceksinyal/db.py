@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS diagnoses (
     cell_changes INTEGER,
     result TEXT,
     advice TEXT,
+    detail TEXT,
     uploaded INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_diagnoses_operator_ts ON diagnoses (operator, ts);
@@ -86,11 +87,13 @@ MEASUREMENT_COLUMNS = (
 ADDED_COLUMNS = (
     ("measurements", "sinr_raw", "INTEGER"),  # rssnr/sinr mentah dari dumpsys
     ("measurements", "sinr_unit", "TEXT"),  # satuan sinr_raw: 'db' atau 'deci_db' (0,1 dB)
+    ("diagnoses", "detail", "TEXT"),  # catatan aturan, mis. "handover: tidak tersedia"
 )
 
 EVENT_SIGNAL_LOST = "signal_lost"
 EVENT_DIAGNOSIS_CHANGED = "diagnosis_changed"
 EVENT_COLLECTOR_ERROR = "collector_error"
+EVENT_DAILY_SUMMARY = "daily_summary"  # penanda ringkasan harian sudah dikirim (detail = tanggal lokal)
 
 
 def utc_now() -> datetime:
@@ -139,12 +142,25 @@ def insert_measurement(conn: sqlite3.Connection, row: dict[str, Any]) -> int:
     return int(cur.lastrowid)
 
 
+def insert_speedtest(conn: sqlite3.Connection, ts: str, kos: str, operator: str | None, result: Any) -> int:
+    """Simpan satu hasil uji kecepatan (objek dengan atribut SpeedResult)."""
+    cur = conn.execute(
+        "INSERT INTO speedtests (ts, kos, operator, method, source_ip, ping_ms, download_mbps, upload_mbps, ok, error) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (ts, kos, operator, result.method, result.source_ip, result.ping_ms, result.download_mbps,
+         result.upload_mbps, 1 if result.ok else 0, result.error),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
 def insert_event(
-    conn: sqlite3.Connection, ts: str, kos: str, operator: str | None, type_: str, detail: str
+    conn: sqlite3.Connection, ts: str, kos: str, operator: str | None, type_: str, detail: str,
+    notified: int = 0,
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO events (ts, kos, operator, type, detail) VALUES (?, ?, ?, ?, ?)",
-        (ts, kos, operator, type_, detail),
+        "INSERT INTO events (ts, kos, operator, type, detail, notified) VALUES (?, ?, ?, ?, ?, ?)",
+        (ts, kos, operator, type_, detail, notified),
     )
     conn.commit()
     return int(cur.lastrowid)

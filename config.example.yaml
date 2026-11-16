@@ -6,6 +6,10 @@ kos: kos-a
 database: data/ceksinyal.db
 raw_dir: data/raw
 
+# Zona waktu untuk tampilan, laporan, dan ringkasan harian (7 = WIB, 8 = WITA, 9 = WIT).
+# Data di database selalu UTC.
+timezone_offset_hours: 7
+
 # Path ke adb. Cukup "adb" kalau platform-tools sudah ada di PATH.
 adb_path: adb
 
@@ -14,6 +18,49 @@ collector:
   max_devices: 2              # satu laptop membaca 1-2 HP
   adb_timeout_seconds: 15     # batas waktu satu perintah adb
   raw_dump_interval_minutes: 60  # maksimal satu file output mentah per HP per periode ini
+
+# Ambang diagnosis (jendela 10 menit per operator). Setelah mengubah, hitung ulang data lama dengan:
+#   python -m ceksinyal diagnose --rerun
+diagnosis:
+  window_minutes: 10
+  min_samples: 20              # jendela dengan sampel lebih sedikit -> "Data kurang"
+  signal_lost_fraction: 0.5    # porsi sampel tanpa layanan -> "Sinyal putus"
+  rsrp_weak_dbm: -110          # median RSRP di bawah ini -> "Cakupan lemah"
+  sinr_interference_db: 0      # median SINR di bawah ini -> "Interferensi"
+  congestion_ratio: 0.5        # median unduh < rasio x median 24 jam -> "Sel padat"
+  min_speed_samples: 6         # data kecepatan 24 jam minimal untuk aturan sel padat
+  speed_lookback_minutes: 20   # jendela tanpa uji kecepatan memakai uji terakhir dalam rentang ini
+  handover_changes: 4          # pergantian sel dalam satu jendela -> "Handover bolak-balik"
+  min_metric_samples: 5        # nilai RSRP/SINR minimal supaya median dianggap tersedia
+
+# Uji kecepatan lewat USB tethering (butuh devices[].source_ip). Memakai kuota data HP:
+# uji ringan ±1 MB, uji penuh bisa puluhan sampai ratusan MB per kali.
+speedtest:
+  enabled: true
+  light_interval_minutes: 15   # ping + unduh file kecil
+  full_interval_minutes: 60    # speedtest-cli; 0 = matikan uji penuh (hemat kuota)
+  ping_host: 1.1.1.1           # ping = waktu koneksi TCP ke host:port ini
+  ping_port: 443
+  ping_count: 3
+  download_url: https://speed.cloudflare.com/__down?bytes=1000000
+  timeout_seconds: 30
+  full_timeout_seconds: 180
+
+# Dashboard bersama di Google Sheets. Aktif kalau spreadsheet_id terisi dan GOOGLE_CREDENTIALS_FILE ada di .env.
+# File kredensial service account TIDAK ditulis di sini dan tidak di-commit.
+sheets:
+  enabled: true
+  spreadsheet_id: ""           # bagian URL di antara /d/ dan /edit (atau GOOGLE_SPREADSHEET_ID di .env)
+  interval_minutes: 5          # jeda antar-upload saat `run`
+  batch_size: 500              # baris per permintaan API
+  aggregate_measurements: true # true = rata-rata per menit per HP; false = setiap sampel
+
+# Bot Telegram. Aktif kalau TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID ada di .env (token TIDAK ditulis di sini).
+telegram:
+  enabled: true
+  alert_cooldown_minutes: 15   # maksimal satu alert yang sama per operator per selang ini
+  daily_summary_time: "21:00"  # waktu lokal ringkasan harian; "" = tanpa ringkasan
+  weak_rsrp_dbm: -100          # ambang "RSRP lemah" di ringkasan harian
 
 # HP yang dibaca. Serial dilihat dengan: python -m ceksinyal devices
 # Kalau daftar ini kosong, collector memakai HP apa saja yang terhubung (maks. max_devices)
@@ -27,5 +74,7 @@ devices:
     #             (SDK <= 29) memakai 0,1 dB, Android 11+ memakai dB (bawaan)
     #   db      = paksa dB (nilai rssnr dipakai apa adanya)
     #   deci_db = paksa 0,1 dB (nilai rssnr selalu dibagi 10)
+    # source_ip: 192.168.42.129  # opsional, IP LAPTOP di interface USB tethering HP ini
+    #   (lihat: python -m ceksinyal interfaces). Tanpa ini uji kecepatan HP ini dilewati.
   - serial: 9A1B2C3D
     operator: Indosat

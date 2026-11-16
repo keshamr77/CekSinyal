@@ -8,11 +8,15 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from . import __version__, db, fix_sinr
+from . import __version__, db, fix_band, fix_sinr, netif
+from .speedtest import METHOD_FULL, METHOD_LIGHT
+from .speedtest.runner import SpeedtestRunner
+from .uploader.sheets import sheets_problem
 from .collector.adb import Adb, AdbError
 from .collector.parser import SignalReading, parse_registry
-from .collector.service import OPERATOR_PROP, Collector, RawStore, probe
+from .collector.service import OPERATOR_PROP, Collector, RawStore, probe, safe_name
 from .config import Config, ConfigError, load_config
+from .diagnosis import engine
 
 log = logging.getLogger("ceksinyal")
 
@@ -134,6 +138,7 @@ def cmd_collect(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
             log.error("--interval minimal 1 detik")
             return 1
         cfg.collector.interval_seconds = args.interval
+    warn_kos(cfg)
     if not cfg.devices:
         log.warning("'devices' kosong di config: memakai HP apa saja yang terhubung (maks %d)",
                     cfg.collector.max_devices)
@@ -182,6 +187,292 @@ def cmd_fix_sinr(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fix_band(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    path = Path(args.db) if args.db else cfg.database
+    try:
+        result = fix_band.fix_band(path, dry_run=args.dry_run)
+    except (OSError, sqlite3.Error) as exc:
+        log.error("fix-band gagal: %s", exc)
+        return 1
+    print(f"Database: {path}")
+    print(f"{result.checked} baris LTE dengan EARFCN diperiksa, {result.corrected} band tidak cocok dengan EARFCN.")
+    if result.pairs:
+        rows = [
+            [_fmt(old), str(new), str(count)]
+            for (old, new), count in sorted(result.pairs.items(), key=lambda kv: (-kv[1], str(kv[0])))
+        ]
+        _print_table(["BAND LAMA", "BAND BARU", "BARIS"], rows)
+    if args.dry_run:
+        print("--dry-run: tidak ada yang ditulis.")
+    elif result.written:
+        print(f"Selesai. Backup: {result.backup}")
+    return 0
+
+
+def warn_kos(cfg: Config) -> None:
+    """Peringatan jelas kalau nama kos belum diisi: datanya tidak bisa dibandingkan antar-kos."""
+    if not cfg.kos_is_set:
+        log.warning("=" * 72)
+        log.warning("'kos' BELUM DIISI di config.yaml: data akan tersimpan dengan kos='%s'.", cfg.kos)
+        log.warning("Isi dulu, mis.  kos: kos-garden-house-a  lalu jalankan ulang.")
+        log.warning("=" * 72)
+
+
+def _db_path(cfg: Config, args: argparse.Namespace) -> Path:
+    return Path(args.db) if getattr(args, "db", None) else cfg.database
+
+
+def _open_existing_db(cfg: Config, args: argparse.Namespace) -> sqlite3.Connection | None:
+    path = _db_path(cfg, args)
+    if not path.is_file():
+        log.error("database tidak ditemukan: %s", path)
+        return None
+    try:
+        return db.connect(path)
+    except sqlite3.Error as exc:
+        log.error("tidak bisa membuka database %s: %s", path, exc)
+        return None
+
+
+def _local(cfg: Config, dt) -> str:
+    return dt.astimezone(cfg.tz).strftime("%Y-%m-%d %H:%M")
+
+
+def cmd_diagnose(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    conn = _open_existing_db(cfg, args)
+    if conn is None:
+        return 1
+    try:
+        run = engine.rerun if args.rerun else engine.run_pending
+        rows = run(conn, cfg.diagnosis, kos=args.kos)
+        print(f"Database: {_db_path(cfg, args)}")
+        if not rows:
+            print("Tidak ada jendela baru untuk didiagnosis." + ("" if args.rerun else " (pakai --rerun untuk menghitung ulang)"))
+        else:
+            table = [
+                [r.kos, r.operator, _local(cfg, r.window_start), str(r.window.n_samples),
+                 _fmt(r.window.median_rsrp), _fmt(r.window.median_sinr), _fmt(r.window.median_download),
+                 _fmt(r.window.cell_changes), r.window.result, r.window.detail]
+                for r in rows
+            ]
+            _print_table(
+                ["KOS", "OPERATOR", f"JENDELA ({cfg.tz_label})", "N", "RSRP", "SINR", "UNDUH", "GANTI SEL", "HASIL", "CATATAN"],
+                table,
+            )
+            counts: dict[tuple[str, str], dict[str, int]] = {}
+            for r in rows:
+                c = counts.setdefault((r.kos, r.operator), {})
+                c[r.window.result] = c.get(r.window.result, 0) + 1
+            print()
+            for (kos, operator), c in counts.items():
+                parts = ", ".join(f"{name} {n}" for name, n in sorted(c.items(), key=lambda kv: -kv[1]))
+                print(f"{kos} / {operator}: {sum(c.values())} jendela ({parts})")
+        for kos in sorted({r[0] for r in conn.execute("SELECT DISTINCT kos FROM diagnoses")}):
+            if args.kos and kos != args.kos:
+                continue
+            rec = engine.recommend(conn, kos)
+            if rec.best:
+                print(f"Rekomendasi operator di {kos}: {rec.best}. {rec.reason}")
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_interfaces(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    try:
+        interfaces = netif.list_interfaces()
+    except ImportError:
+        log.error("psutil belum terpasang: pip install -r requirements.txt")
+        return 1
+    if not interfaces:
+        print("Tidak ada interface dengan alamat IPv4.")
+        return 0
+    used = {d.source_ip: d for d in cfg.devices if d.source_ip}
+    rows = []
+    for i in interfaces:
+        dev = used.get(i.ipv4)
+        note = i.hint
+        if dev:
+            note = f"dipakai di config: {dev.operator or dev.serial}" + (f" ({note})" if note else "")
+        rows.append([i.name, i.ipv4, i.netmask or "-", {True: "aktif", False: "mati", None: "?"}[i.is_up], note])
+    _print_table(["INTERFACE", "IPv4", "NETMASK", "STATUS", "KETERANGAN"], rows)
+    missing = [f"{d.source_ip} ({d.operator or d.serial})" for d in cfg.devices
+               if d.source_ip and d.source_ip not in {i.ipv4 for i in interfaces}]
+    if missing:
+        print(f"\nsource_ip di config yang TIDAK ada di laptop saat ini: {', '.join(missing)}")
+    print(
+        "\nCara mengisi: nyalakan USB tethering di HP (dan matikan Wi-Fi HP), jalankan perintah ini lagi, lalu salin\n"
+        "IPv4 interface yang baru muncul ke devices[].source_ip di config.yaml. IP bisa berubah setelah HP dicabut."
+    )
+    return 0
+
+
+def cmd_speedtest(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    try:
+        conn = db.connect(cfg.database)
+    except Exception as exc:
+        log.error("tidak bisa membuka database %s: %s", cfg.database, exc)
+        return 1
+    try:
+        runner = SpeedtestRunner(cfg, conn)
+        targets = runner.targets()
+        if not targets:
+            print("Tidak ada HP dengan source_ip di config. Lihat: python -m ceksinyal interfaces")
+            return 1
+        method = METHOD_FULL if args.full else METHOD_LIGHT
+        rows, code = [], 0
+        for target in targets:
+            r = runner.run_one(target, method, save=not args.no_save)
+            rows.append([target.operator, r.method, r.source_ip or "-", _fmt(r.ping_ms, " ms"),
+                         _fmt(r.download_mbps, " Mbps"), _fmt(r.upload_mbps, " Mbps"),
+                         "OK" if r.ok else "GAGAL", r.error or ""])
+            code = code if r.ok else 2
+        _print_table(["OPERATOR", "METODE", "IP SUMBER", "PING", "UNDUH", "UNGGAH", "STATUS", "CATATAN"], rows)
+        return code
+    finally:
+        conn.close()
+
+
+def _parse_day(cfg: Config, text: str | None, end: bool = False):
+    """Tanggal lokal YYYY-MM-DD (atau 'YYYY-MM-DD HH:MM') -> datetime; `end` = akhir hari itu."""
+    if not text:
+        return None
+    from datetime import datetime, timedelta
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(text, fmt).replace(tzinfo=cfg.tz)
+        except ValueError:
+            continue
+        return dt + timedelta(days=1) if end and fmt == "%Y-%m-%d" else dt
+    raise ValueError(f"tanggal tidak dikenali: {text!r} (pakai YYYY-MM-DD)")
+
+
+def cmd_report(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    from .report import data as report_data, render
+
+    try:
+        since, until = _parse_day(cfg, args.since), _parse_day(cfg, args.until, end=True)
+    except ValueError as exc:
+        log.error("%s", exc)
+        return 1
+    conn = _open_existing_db(cfg, args)
+    if conn is None:
+        return 1
+    try:
+        known = report_data.list_kos(conn)
+        if args.kos not in {k for k, _ in known}:
+            log.error("kos '%s' tidak ada di database %s", args.kos, _db_path(cfg, args))
+            if known:
+                print("Kos yang tersedia: " + ", ".join(f"{k} ({n} sampel)" for k, n in known))
+            return 1
+        if not args.no_diagnose:
+            engine.run_pending(conn, cfg.diagnosis, kos=args.kos)
+        data = report_data.build(conn, args.kos, cfg.diagnosis, cfg.tz, cfg.tz_label, since, until)
+    finally:
+        conn.close()
+    out_dir = Path(args.out) if args.out else cfg.report_dir
+    stamp = data.generated.astimezone(cfg.tz).strftime("%Y%m%d-%H%M")
+    base = f"laporan_{safe_name(args.kos)}_{stamp}"
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        md_path, html_path = out_dir / f"{base}.md", out_dir / f"{base}.html"
+        md_path.write_text(render.render_markdown(data), encoding="utf-8")
+        html_path.write_text(render.render_html(data), encoding="utf-8")
+    except OSError as exc:
+        log.error("gagal menulis laporan: %s", exc)
+        return 1
+    print(f"Laporan kos {args.kos}: {len(data.operators)} operator, {len(data.windows)} jendela diagnosis.")
+    print(f"  Markdown: {md_path}")
+    print(f"  HTML    : {html_path}")
+    return 0
+
+
+def cmd_upload(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    from .uploader.sheets import make_uploader
+
+    problem = sheets_problem(cfg)
+    if problem:
+        log.error("uploader Sheets belum siap: %s", problem)
+        return 1
+    try:
+        conn = db.connect(cfg.database)
+    except Exception as exc:
+        log.error("tidak bisa membuka database %s: %s", cfg.database, exc)
+        return 1
+    try:
+        uploader = make_uploader(cfg, conn)
+        sent = uploader.upload_pending()
+        left = uploader.pending()
+        _print_table(["TAB", "TERKIRIM (baris sheet)", "MASIH TERTUNDA (baris lokal)"],
+                     [[t, "GAGAL" if n < 0 else str(n), str(left[t])] for t, n in sent.items()])
+        return 1 if any(n < 0 for n in sent.values()) else 0
+    finally:
+        conn.close()
+
+
+def cmd_summary(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    from datetime import timedelta
+
+    from .bot.telegram import Notifier, TelegramClient, TelegramError, make_client
+
+    conn = _open_existing_db(cfg, args)
+    if conn is None:
+        return 1
+    try:
+        client = make_client(cfg)
+        if args.send and client is None:
+            log.error("bot belum siap: isi TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID di .env")
+            return 1
+        notifier = Notifier(cfg, conn, client or TelegramClient("", ""))
+        now = db.utc_now()
+        if args.hours:
+            start = now - timedelta(hours=args.hours)
+        else:
+            start = now.astimezone(cfg.tz).replace(hour=0, minute=0, second=0, microsecond=0)
+        text = notifier.summary_text(start, now)
+        print(text)
+        if args.send:
+            try:
+                client.send(text)
+            except TelegramError as exc:
+                log.error("%s", exc)
+                return 1
+            print("\nTerkirim ke Telegram.")
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_run(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    from . import runner
+
+    warn_kos(cfg)
+    if not cfg.devices:
+        log.warning("'devices' kosong di config: memakai HP apa saja yang terhubung (maks %d)",
+                    cfg.collector.max_devices)
+    try:
+        db.connect(cfg.database).close()  # gagal lebih awal kalau database tidak bisa dibuka
+    except Exception as exc:
+        log.error("tidak bisa membuka database %s: %s", cfg.database, exc)
+        return 1
+    return runner.run(cfg, adb)
+
+
+def cmd_selftest(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    from . import selftest
+
+    checks = selftest.run_checks(cfg, adb, send_test=args.send_test)
+    _print_table(["PEMERIKSAAN", "STATUS", "KETERANGAN"], [[c.name, c.status, c.detail] for c in checks])
+    failed = sum(1 for c in checks if c.status == selftest.FAIL)
+    warned = sum(1 for c in checks if c.status == selftest.WARN)
+    print()
+    if failed:
+        print(f"{failed} pemeriksaan GAGAL, {warned} peringatan. Perbaiki yang GAGAL sebelum menjalankan `run`.")
+    else:
+        print(f"Semua pemeriksaan wajib lolos ({warned} peringatan). Siap: python -m ceksinyal run")
+    return selftest.exit_code(checks)
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", default=argparse.SUPPRESS, help="path config.yaml")
@@ -215,6 +506,55 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--serial", help="hanya baris dari HP dengan serial ini")
     p.add_argument("--dry-run", action="store_true", help="tampilkan ringkasan saja, tanpa menulis")
     p.set_defaults(func=cmd_fix_sinr)
+
+    p = sub.add_parser("fix-band", parents=[common],
+                       help="koreksi band LTE lama yang tidak cocok dengan EARFCN")
+    p.add_argument("--db", help="path database (bawaan: database di config)")
+    p.add_argument("--dry-run", action="store_true", help="tampilkan ringkasan saja, tanpa menulis")
+    p.set_defaults(func=cmd_fix_band)
+
+    p = sub.add_parser("diagnose", parents=[common], help="diagnosis jendela 10 menit yang belum didiagnosis")
+    p.add_argument("--rerun", action="store_true",
+                   help="hapus diagnosis lama dan hitung ulang semua data (setelah ambang diubah)")
+    p.add_argument("--db", help="path database (bawaan: database di config)")
+    p.add_argument("--kos", help="hanya kos ini (bawaan: semua kos di database)")
+    p.set_defaults(func=cmd_diagnose)
+
+    p = sub.add_parser("interfaces", parents=[common],
+                       help="daftar interface jaringan dan IP (untuk mengisi source_ip tethering)")
+    p.set_defaults(func=cmd_interfaces)
+
+    p = sub.add_parser("speedtest", parents=[common], help="jalankan uji kecepatan sekali untuk tiap operator")
+    p.add_argument("--full", action="store_true", help="uji penuh (speedtest-cli) alih-alih uji ringan")
+    p.add_argument("--no-save", action="store_true", help="jangan simpan hasil ke database")
+    p.set_defaults(func=cmd_speedtest)
+
+    p = sub.add_parser("report", parents=[common], help="laporan bukti per kos (Markdown + HTML)")
+    p.add_argument("--kos", required=True, help="nama kos (persis seperti di data)")
+    p.add_argument("--db", help="path database (bawaan: database di config)")
+    p.add_argument("--out", help="folder keluaran (bawaan: report_dir di config, data/reports)")
+    p.add_argument("--since", help="mulai tanggal lokal YYYY-MM-DD (bawaan: semua data)")
+    p.add_argument("--until", help="sampai tanggal lokal YYYY-MM-DD, termasuk hari itu")
+    p.add_argument("--no-diagnose", action="store_true",
+                   help="jangan mendiagnosis jendela yang belum didiagnosis sebelum membuat laporan")
+    p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("upload", parents=[common], help="kirim baris yang belum ter-upload ke Google Sheets sekarang")
+    p.set_defaults(func=cmd_upload)
+
+    p = sub.add_parser("summary", parents=[common], help="tampilkan ringkasan hari ini (seperti ringkasan harian bot)")
+    p.add_argument("--send", action="store_true", help="kirim juga ke Telegram")
+    p.add_argument("--hours", type=float, help="periode N jam terakhir (bawaan: sejak 00:00 waktu lokal)")
+    p.add_argument("--db", help="path database (bawaan: database di config)")
+    p.set_defaults(func=cmd_summary)
+
+    p = sub.add_parser("run", parents=[common],
+                       help="jalankan semuanya: collector, speedtest, diagnosis, uploader, bot")
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("selftest", parents=[common], help="cek config, kos, ADB/HP, tethering, Sheets, dan bot")
+    p.add_argument("--send-test", action="store_true", help="kirim juga satu pesan uji ke Telegram")
+    p.set_defaults(func=cmd_selftest)
     return parser
 
 
