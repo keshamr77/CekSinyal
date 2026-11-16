@@ -1,39 +1,144 @@
 # CekSinyal
 
 Pemantau sinyal seluler untuk tugas besar ET4132 Kapita Selekta Teknik Telekomunikasi (ITB, Kelompok 2).
-HP Android disambungkan ke laptop lewat USB; laptop membaca kualitas sinyal lewat ADB dan menyimpannya ke SQLite.
 
-Status: **collector** (`devices`, `probe`, `collect`), **diagnosis** (`diagnose`), **uji kecepatan** (`interfaces`, `speedtest`), **laporan bukti** (`report`), **uploader Google Sheets** (`upload`), dan **bot Telegram** (`summary`) sudah jalan.
+HP Android disambungkan ke laptop lewat USB. Laptop membaca kualitas sinyal lewat ADB tiap 10 detik, menguji kecepatan
+internet lewat USB tethering, menyimpan semuanya ke SQLite, mendiagnosis penyebab sinyal buruk tiap 10 menit, lalu
+mengirim hasilnya ke spreadsheet bersama (Google Sheets) dan bot Telegram. Dari data itu bisa dibuat laporan bukti per kos.
 
-## Persiapan
+Alat ini **tidak memperkuat sinyal**. Nilainya ada di diagnosis, perbandingan operator, perbandingan antar-kos, dan bukti
+tertulis.
 
-1. Python 3.10+.
-2. Android platform-tools (`adb`). Kalau tidak ada di PATH, CekSinyal juga mencari di lokasi SDK
-   bawaan (`ANDROID_HOME`, `ANDROID_SDK_ROOT`, `%LOCALAPPDATA%\Android\Sdk`, `~/Android/Sdk`,
+```
+HP Android ──USB (ADB)──> collector ──> SQLite <── speedtest (lewat USB tethering)
+                                          │
+                                   diagnosis (tiap 10 menit)
+                                          │
+                     ┌────────────────────┼──────────────────┐
+                 uploader            bot Telegram          report
+              (Google Sheets)     (alert + ringkasan)   (laporan bukti)
+```
+
+Batasan: hanya HP Android (iPhone tidak bisa dibaca lewat ADB); satu laptop membaca 1–2 HP; jalan di Windows, macOS,
+dan Linux dengan Python 3.10+.
+
+## Mulai cepat: dari instalasi sampai jalan di kos
+
+### 1. Pasang
+
+1. **Python 3.10+** dan **Android platform-tools** (`adb`). Kalau `adb` tidak ada di PATH, CekSinyal juga mencarinya di
+   lokasi SDK bawaan (`ANDROID_HOME`, `ANDROID_SDK_ROOT`, `%LOCALAPPDATA%\Android\Sdk`, `~/Android/Sdk`,
    `~/Library/Android/sdk`), atau isi `adb_path` di config.
-3. Di HP: aktifkan *Opsi pengembang* lalu *USB debugging*, sambungkan USB, dan izinkan laptop saat diminta.
-4. Pasang dependensi:
+2. Ambil kode ini, lalu di foldernya:
 
    ```
    python -m venv .venv
    .venv\Scripts\activate          # Windows
    source .venv/bin/activate       # macOS / Linux
    pip install -r requirements.txt
-   pip install -r requirements-dev.txt   # untuk menjalankan tes
+   pip install -r requirements-dev.txt   # hanya kalau mau menjalankan tes
    ```
 
-5. Salin `config.example.yaml` menjadi `config.yaml`, lalu isi `kos` dan daftar `devices`
-   (serial dilihat dengan `python -m ceksinyal devices`). Salin `.env.example` menjadi `.env`
-   untuk fitur yang butuh rahasia nanti. Kedua file itu tidak di-commit.
+3. Salin `config.example.yaml` menjadi `config.yaml` dan `.env.example` menjadi `.env`. Kedua file hasil salinan itu
+   berisi data pribadi/rahasia dan **tidak di-commit**.
+
+### 2. Siapkan HP
+
+1. Di HP: aktifkan *Opsi pengembang* (ketuk *Nomor build* 7 kali), lalu nyalakan *USB debugging*.
+2. Sambungkan USB dan izinkan laptop saat HP bertanya.
+3. `python -m ceksinyal devices` → HP muncul dengan status `device`. Catat serialnya.
+4. `python -m ceksinyal probe` → pastikan RSRP/RSRQ/SINR terbaca. Kalau "GAGAL", kirim file `data/raw/probe_*.txt`
+   ke tim supaya parser diperbaiki.
+
+### 3. Isi `config.yaml`
+
+```yaml
+kos: kos-garden-house-a        # WAJIB: nama kos, konsisten di semua sesi
+devices:
+  - serial: R58M12345AB        # dari `devices`
+    operator: Telkomsel
+    source_ip: 192.168.42.129  # langkah 4; boleh dilewati kalau tanpa uji kecepatan
+```
+
+Kalau `kos` belum diisi, `collect` dan `run` menampilkan peringatan besar dan `selftest` gagal: data tanpa nama kos
+tidak bisa dibandingkan. HP dual-SIM: tambahkan `phone_id: 0` atau `1` untuk memilih slot SIM.
+
+### 4. (Opsional) uji kecepatan, Sheets, dan bot
+
+- **Uji kecepatan**: nyalakan USB tethering di HP (Wi-Fi HP mati), jalankan `python -m ceksinyal interfaces`, salin IP
+  interface tethering ke `source_ip`. Rinciannya di bagian "Uji kecepatan". Uji ini memakai kuota data HP.
+- **Google Sheets**: isi `GOOGLE_CREDENTIALS_FILE` di `.env` dan `sheets.spreadsheet_id` di config ("Dashboard Google Sheets").
+- **Bot Telegram**: isi `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_CHAT_ID` di `.env` ("Bot Telegram").
+
+Bagian yang tidak diisi otomatis dilewati; sisanya tetap jalan.
+
+### 5. Periksa, lalu jalankan
+
+```
+python -m ceksinyal selftest     # semua harus OK / LEWATI / PERINGATAN, tidak ada GAGAL
+python -m ceksinyal run          # collector + speedtest + diagnosis + uploader + bot
+```
+
+Biarkan `run` berjalan (idealnya beberapa jam, mencakup jam sibuk malam). Hentikan dengan **Ctrl+C**; program menunggu
+bagian yang sedang berjalan lalu berhenti rapi. Data aman di `data/ceksinyal.db` dan `run` bisa dilanjutkan kapan saja.
+
+Tips di kos:
+
+- Letakkan HP di titik yang biasa dipakai (meja belajar), jangan dipindah-pindah selama merekam.
+- Matikan mode hemat baterai laptop/sleep; colok charger. Kabel USB yang longgar akan tercatat sebagai gangguan alat ukur.
+- Untuk membandingkan operator, pakai dua HP sekaligus. Satu HP dual-SIM hanya dibaca satu slot per sesi
+  (satu serial = satu `phone_id`).
+
+### 6. Lihat hasil
+
+```
+python -m ceksinyal diagnose                 # tabel diagnosis per jendela (sudah otomatis saat `run`)
+python -m ceksinyal summary                  # ringkasan hari ini
+python -m ceksinyal report --kos kos-garden-house-a   # laporan bukti (Markdown + HTML) di data/reports/
+```
+
+## `run` dan `selftest`
+
+`python -m ceksinyal run` menjalankan tiap bagian di thread sendiri dengan koneksi database sendiri:
+
+| Bagian | Kapan | Aktif kalau |
+|---|---|---|
+| collector | tiap `collector.interval_seconds` (10 detik) | selalu |
+| diagnosis | dicek tiap menit; menulis jendela 10 menit yang baru selesai | selalu |
+| speedtest | dicek tiap 30 detik; ringan tiap 15 menit, penuh tiap 60 menit | ada `devices[].source_ip` dan `speedtest.enabled` |
+| uploader | tiap `sheets.interval_minutes` (5 menit) | spreadsheet ID + file kredensial ada |
+| bot | tiap 30 detik (alert) + ringkasan harian | token + chat ID ada di `.env` |
+
+- Saat mulai, `run` mencetak bagian mana yang aktif dan alasan untuk tiap bagian yang tidak aktif.
+- **Error di satu bagian tidak mematikan bagian lain**: error dicatat di log, bagian itu disiapkan ulang, dan dicoba
+  lagi di putaran berikutnya. Uji kecepatan yang lama tidak menunda pembacaan sinyal.
+- **Ctrl+C** (atau SIGTERM di Linux) menghentikan semua bagian dengan rapi; bagian yang belum selesai dalam 10 detik
+  (mis. uji penuh yang sedang berjalan) ditinggal.
+
+`python -m ceksinyal selftest [--send-test]` memeriksa, tanpa mengubah data:
+
+| Pemeriksaan | GAGAL kalau |
+|---|---|
+| config | (peringatan saja kalau `config.yaml` tidak ada) |
+| kos | `kos` belum diisi |
+| database | file database tidak bisa dibuka/ditulis |
+| adb, HP | adb tidak ditemukan; HP di config tidak terhubung/unauthorized; parsing dumpsys gagal. Peringatan kalau HP menyembunyikan cell_id/EARFCN |
+| tethering | `source_ip` di config tidak ada di laptop (peringatan kalau belum diisi) |
+| Google Sheets | dikonfigurasi sebagian, kredensial tidak ada, atau spreadsheet tidak bisa dibuka (LEWATI kalau tidak dipakai) |
+| bot Telegram | token/chat ID kurang atau ditolak Telegram (LEWATI kalau tidak dipakai). `--send-test` mengirim satu pesan uji |
+
+Kode keluar 0 kalau tidak ada yang GAGAL.
 
 ## Perintah
 
 | Perintah | Fungsi |
 |---|---|
+| `python -m ceksinyal selftest [--send-test]` | Cek config, kos, database, ADB/HP, tethering, Sheets, dan bot sebelum merekam. |
+| `python -m ceksinyal run` | Semuanya sekaligus: collector, speedtest, diagnosis, uploader, bot. Hentikan dengan Ctrl+C. |
 | `python -m ceksinyal devices` | Daftar HP terhubung: serial, status ADB, model, operator (dari config dan dari HP). |
 | `python -m ceksinyal probe` | Baca sekali dari tiap HP, tampilkan hasil parsing, simpan output mentah ke `data/raw/probe_<serial>_<waktu>.txt`. |
 | `python -m ceksinyal probe --file <path>` | Parse file output dumpsys tanpa HP (untuk mengecek fixture). |
-| `python -m ceksinyal collect` | Collector: baca 1–2 HP tiap 10 detik dan simpan ke tabel `measurements`. Hentikan dengan Ctrl+C. |
+| `python -m ceksinyal collect` | Collector saja: baca 1–2 HP tiap 10 detik dan simpan ke tabel `measurements`. Hentikan dengan Ctrl+C. |
 | `python -m ceksinyal interfaces` | Daftar interface jaringan laptop dan IPv4-nya, untuk mengisi `devices[].source_ip`. |
 | `python -m ceksinyal speedtest [--full] [--no-save]` | Uji kecepatan sekali sekarang untuk tiap HP yang punya `source_ip` (ringan; `--full` = speedtest-cli). |
 | `python -m ceksinyal diagnose [--rerun] [--db <path>] [--kos <nama>]` | Diagnosis per jendela 10 menit untuk data yang belum didiagnosis; `--rerun` menghapus hasil lama dan menghitung ulang semuanya (setelah ambang diubah). |
@@ -53,7 +158,7 @@ Kode keluar `probe`: 0 = semua berhasil, 1 = HP/ADB bermasalah, 2 = ada yang par
 
 | Kunci | Bawaan | Arti |
 |---|---|---|
-| `kos` | `belum-diatur` | Nama lokasi, ikut tersimpan di setiap baris. |
+| `kos` | `belum-diatur` | Nama lokasi, ikut tersimpan di setiap baris. Wajib diisi (lihat "Mulai cepat"). |
 | `database` | `data/ceksinyal.db` | File SQLite (relatif terhadap folder config). |
 | `raw_dir` | `data/raw` | Folder output mentah. |
 | `report_dir` | `data/reports` | Folder laporan bukti. |
@@ -282,8 +387,26 @@ Catatan: `--kos` harus persis sama dengan nama di data (kalau salah, daftar kos 
 laporan, jendela yang belum didiagnosis didiagnosis dulu (matikan dengan `--no-diagnose`). `--since`/`--until` memakai
 tanggal lokal `YYYY-MM-DD`. Waktu di laporan memakai `timezone_offset_hours`.
 
+## Pemecahan masalah
+
+| Gejala | Yang dicek |
+|---|---|
+| `devices` kosong / `unauthorized` | Kabel data (bukan kabel cas saja), USB debugging menyala, buka kunci HP dan setujui dialog izin. |
+| `probe` GAGAL: format tidak dikenali | Kirim `data/raw/probe_*.txt` ke tim; tambahkan sebagai fixture `real_*.txt` lalu perbaiki parser. |
+| `pci`/`cell_id` kosong | HP menyembunyikan identitas sel (Xiaomi). Normal; diagnosis handover memakai EARFCN atau "tidak tersedia". |
+| SINR terlihat 10x terlalu besar/kecil | Satuan rssnr HP itu tidak sesuai tebakan dari versi Android: isi `devices[].sinr_unit`. Data lama: `fix-sinr`. |
+| Semua diagnosis "Data kurang" | Sampel per jendela < 20: collector baru jalan, sering terputus, atau interval terlalu besar. |
+| Speedtest selalu `ok=0` "IP sumber ... tidak ada" | USB tethering mati atau IP berubah setelah HP dicabut: `interfaces`, perbarui `source_ip`. |
+| Upload gagal 403/404 | Spreadsheet belum di-*share* ke email service account, atau `spreadsheet_id` salah. |
+| Bot diam | `selftest --send-test`; pastikan bot sudah dimasukkan ke grup dan `TELEGRAM_CHAT_ID` benar (ID grup negatif). |
+| Kos tertulis `belum-diatur` di data | Isi `kos` di config. Data lama tetap berlabel lama (bisa diubah manual dengan SQL `UPDATE ... SET kos = ...` di salinan DB). |
+
 ## TODO
 
+- HP dual-SIM: baru satu slot SIM per HP yang bisa dipantau dalam satu sesi (`phone_id`). Memantau dua slot sekaligus
+  butuh dua entri `devices` untuk serial yang sama, yang belum didukung.
+- Batas frekuensi alert bot disimpan di memori; setelah `run` di-restart, alert yang sama bisa terkirim lagi lebih cepat
+  dari 15 menit.
 - Infinix Android 14 dual-SIM: SIM 2 (Tri) menunjukkan `rssnr=0` di `mSignalStrength` dan di semua CellInfo.
   Kemungkinan itu nilai kosong, bukan 0 dB sungguhan. Perlu dicek kalau SIM 2 ikut dipantau.
 - Xiaomi Android 10 (Redmi 9C): `pci` dan `cell_id` kosong di semua sampel, dan `earfcn`/`band` hanya terisi

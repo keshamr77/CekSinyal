@@ -13,7 +13,7 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 | M4 | `report --kos` (Markdown + HTML) | selesai |
 | M5 | Uploader Google Sheets (store-and-forward) | selesai (perlu uji manual dengan spreadsheet asli) |
 | M6 | Bot Telegram (alert + ringkasan harian) | selesai (perlu uji manual dengan bot asli) |
-| M7 | `run`, `selftest`, README lengkap | belum |
+| M7 | `run`, `selftest`, README lengkap | selesai (perlu uji manual dengan perangkat asli) |
 
 ## Rencana per milestone
 
@@ -151,6 +151,18 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
   "RSRP lemah" = `telegram.weak_rsrp_dbm` (−100).
 - Perintah tambahan: `summary [--send] [--hours N]`.
 
+### M7
+- `run`: satu thread + satu koneksi SQLite (WAL) per bagian: collector (loop sendiri), diagnosis (cek tiap 60 detik),
+  speedtest (cek tiap 30 detik), uploader (tiap `sheets.interval_minutes`), bot (tiap 30 detik). Setiap putaran
+  dibungkus try/except; kalau error, bagian itu disiapkan ulang (koneksi baru) dan dicoba lagi.
+- Berhenti: `threading.Event` dipakai sebagai `sleep` semua bagian, jadi Ctrl+C/SIGTERM langsung membangunkan semuanya.
+  Thread ditunggu maksimal 10 detik (uji penuh speedtest yang sedang jalan ditinggal; thread daemon).
+- Bagian opsional yang tidak dikonfigurasi dilewati dengan satu baris peringatan saat mulai, bukan error.
+- `selftest`: status OK / GAGAL / PERINGATAN / LEWATI. `kos` belum diisi = GAGAL. Sheets/bot yang sama sekali tidak
+  dikonfigurasi = LEWATI; dikonfigurasi setengah = GAGAL. Tidak menjalankan uji kecepatan (hanya cek IP sumber ada).
+  `--send-test` mengirim satu pesan uji ke Telegram.
+- `selftest` membaca tiap HP sekali (dumpsys) dan memberi PERINGATAN kalau cell_id/EARFCN tidak tersedia.
+
 ## Hasil verifikasi dengan data asli
 
 ### M1
@@ -178,6 +190,10 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
   "cell_id disembunyikan, EARFCN 21% sampel", "487 sampel versi lama". Band: 592 sampel tanpa band, B3 98, B40 60. Masuk akal.
 - Infinix "belum-diatur": catatan kos belum diisi muncul di atas; keterbatasan: belum ada speedtest, rekaman hanya 7 menit.
 
+### M7 (uji asap di laptop ini, config dan database sementara, tanpa HP)
+- `selftest`: adb ditemukan, 0 HP → "HP GAGAL", Sheets/bot LEWATI, kode keluar 1. `run`: bagian aktif collector +
+  diagnosis, tiga bagian lain dilaporkan tidak aktif beserta alasannya, collector mulai. Belum dicoba dengan HP asli.
+
 ## Perlu uji manual (oleh tim, dengan perangkat asli)
 
 - [ ] M1: `probe` di Infinix sekarang menampilkan band 3; jalankan `fix-band` pada DB Infinix yang asli (ada backup otomatis).
@@ -188,6 +204,13 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 - [ ] M3: di Linux/Orange Pi, cek apakah perlu policy routing supaya `source_ip` keluar lewat interface tethering.
 - [ ] M3: URL unduhan bawaan (Cloudflare) bisa diakses dari semua operator; kalau tidak, ganti `speedtest.download_url`.
 - [ ] M3: perkiraan pemakaian kuota uji penuh per jam; matikan (`full_interval_minutes: 0`) kalau terlalu boros.
+- [ ] M7: `selftest` dengan HP asli di tiap laptop anggota (Windows/macOS/Linux): semua OK.
+- [ ] M7: `run` ≥ 2 jam dengan 1 HP, lalu dengan 2 HP: tidak ada error di log, jendela diagnosis muncul tiap 10 menit,
+      speedtest sesuai jadwal, baris masuk Sheets, alert/ringkasan sampai.
+- [ ] M7: Ctrl+C saat `run` (termasuk saat uji penuh berjalan): berhenti rapi, data terakhir tersimpan.
+- [ ] M7: cabut-pasang HP dan matikan-nyalakan internet saat `run`: bagian lain tetap jalan, pulih sendiri.
+- [ ] M7: laptop sleep/lid tertutup saat `run`: cek perilaku setelah bangun (jendela "Data kurang" diharapkan).
+- [ ] M7: Orange Pi/Linux: jalankan sebagai layanan (systemd), SIGTERM berhenti rapi.
 - [ ] M6: buat bot + grup, isi `.env`, `summary --send`: pesan sampai, emoji dan tanda minus tampil benar.
 - [ ] M6: cabut HP saat `run`: alert "gangguan alat ukur" datang sekali, bukan tiap 10 detik.
 - [ ] M6: paksa sinyal putus (mode pesawat ±10 menit): alert 🔴 datang setelah jendela selesai; masuk laporan.
@@ -204,6 +227,14 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 - [ ] M1: `probe` di HP lain (Samsung/Oppo/Vivo, dan HP 5G) lalu tambahkan fixture `real_*.txt`.
 
 ## TODO / di luar cakupan
+
+- HP dual-SIM: hanya satu slot per serial per sesi (`phone_id`); memantau dua SIM dari satu HP sekaligus belum didukung.
+- Batas frekuensi alert bot hanya di memori (hilang saat restart).
+- `diagnose --rerun` membuat baris diagnosis ganda di Google Sheets (baris lama tidak dihapus dari sheet).
+- Uploader "minimal sekali": batch bisa ganda di sheet kalau jawaban API hilang; belum ada dedup.
+- Data Xiaomi asli di `data/ceksinyal_xiaomi.db` BELUM dikoreksi (verifikasi dilakukan pada salinan). Untuk memperbaikinya:
+  `fix-sinr --db data/ceksinyal_xiaomi.db` (cek `--dry-run` dulu), lalu `diagnose --rerun --db ...`. Sama untuk Infinix:
+  `fix-band --db data/ceksinyal_infinix.db`.
 
 - Infinix SIM 2 (Tri): `rssnr=0` di `mSignalStrength` dan di semua CellInfo, kemungkinan nilai kosong, bukan 0 dB sungguhan.
   Parser masih menyimpannya sebagai SINR 0,0. Perlu dicek (bandingkan dengan aplikasi Network Cell Info) kalau SIM 2 ikut dipantau.

@@ -208,6 +208,20 @@ class Uploader:
         return sent
 
 
+def sheets_problem(config: Config) -> str | None:
+    """Alasan uploader Sheets tidak aktif, atau None kalau siap."""
+    s = config.sheets
+    if not s.enabled:
+        return "sheets.enabled: false di config"
+    if not s.spreadsheet_id:
+        return "spreadsheet_id belum diisi (config sheets.spreadsheet_id atau GOOGLE_SPREADSHEET_ID di .env)"
+    if not s.credentials_file:
+        return "file kredensial belum diisi (GOOGLE_CREDENTIALS_FILE di .env)"
+    if not s.credentials_file.is_file():
+        return f"file kredensial tidak ditemukan: {s.credentials_file}"
+    return None
+
+
 def make_uploader(config: Config, conn: sqlite3.Connection) -> Uploader | None:
     """Uploader dari config, atau None kalau Sheets tidak dikonfigurasi."""
     if not config.sheets.active:

@@ -160,7 +160,8 @@ class Collector:
 
     # ------------------------------------------------------------ loop
 
-    def run(self, iterations: int | None = None) -> None:
+    def run(self, iterations: int | None = None, should_stop: Callable[[], bool] | None = None) -> None:
+        """Loop pembacaan. `should_stop` diperiksa tiap putaran (dipakai `run` untuk berhenti rapi)."""
         interval = self.config.collector.interval_seconds
         log.info(
             "collector mulai: kos=%s, interval=%gs, maks %d HP, db=%s",
@@ -172,7 +173,7 @@ class Collector:
         count = 0
         next_tick = self._monotonic()
         try:
-            while iterations is None or count < iterations:
+            while (iterations is None or count < iterations) and not (should_stop and should_stop()):
                 try:
                     self.tick()
                 except Exception as exc:  # satu putaran gagal tidak boleh mematikan collector

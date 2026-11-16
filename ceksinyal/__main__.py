@@ -11,6 +11,7 @@ from pathlib import Path
 from . import __version__, db, fix_band, fix_sinr, netif
 from .speedtest import METHOD_FULL, METHOD_LIGHT
 from .speedtest.runner import SpeedtestRunner
+from .uploader.sheets import sheets_problem
 from .collector.adb import Adb, AdbError
 from .collector.parser import SignalReading, parse_registry
 from .collector.service import OPERATOR_PROP, Collector, RawStore, probe, safe_name
@@ -386,20 +387,6 @@ def cmd_report(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
     return 0
 
 
-def sheets_problem(cfg: Config) -> str | None:
-    """Alasan uploader Sheets tidak aktif, atau None kalau siap."""
-    s = cfg.sheets
-    if not s.enabled:
-        return "sheets.enabled: false di config"
-    if not s.spreadsheet_id:
-        return "spreadsheet_id belum diisi (config sheets.spreadsheet_id atau GOOGLE_SPREADSHEET_ID di .env)"
-    if not s.credentials_file:
-        return "file kredensial belum diisi (GOOGLE_CREDENTIALS_FILE di .env)"
-    if not s.credentials_file.is_file():
-        return f"file kredensial tidak ditemukan: {s.credentials_file}"
-    return None
-
-
 def cmd_upload(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
     from .uploader.sheets import make_uploader
 
@@ -454,6 +441,36 @@ def cmd_summary(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
         return 0
     finally:
         conn.close()
+
+
+def cmd_run(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    from . import runner
+
+    warn_kos(cfg)
+    if not cfg.devices:
+        log.warning("'devices' kosong di config: memakai HP apa saja yang terhubung (maks %d)",
+                    cfg.collector.max_devices)
+    try:
+        db.connect(cfg.database).close()  # gagal lebih awal kalau database tidak bisa dibuka
+    except Exception as exc:
+        log.error("tidak bisa membuka database %s: %s", cfg.database, exc)
+        return 1
+    return runner.run(cfg, adb)
+
+
+def cmd_selftest(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    from . import selftest
+
+    checks = selftest.run_checks(cfg, adb, send_test=args.send_test)
+    _print_table(["PEMERIKSAAN", "STATUS", "KETERANGAN"], [[c.name, c.status, c.detail] for c in checks])
+    failed = sum(1 for c in checks if c.status == selftest.FAIL)
+    warned = sum(1 for c in checks if c.status == selftest.WARN)
+    print()
+    if failed:
+        print(f"{failed} pemeriksaan GAGAL, {warned} peringatan. Perbaiki yang GAGAL sebelum menjalankan `run`.")
+    else:
+        print(f"Semua pemeriksaan wajib lolos ({warned} peringatan). Siap: python -m ceksinyal run")
+    return selftest.exit_code(checks)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -530,6 +547,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--hours", type=float, help="periode N jam terakhir (bawaan: sejak 00:00 waktu lokal)")
     p.add_argument("--db", help="path database (bawaan: database di config)")
     p.set_defaults(func=cmd_summary)
+
+    p = sub.add_parser("run", parents=[common],
+                       help="jalankan semuanya: collector, speedtest, diagnosis, uploader, bot")
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("selftest", parents=[common], help="cek config, kos, ADB/HP, tethering, Sheets, dan bot")
+    p.add_argument("--send-test", action="store_true", help="kirim juga satu pesan uji ke Telegram")
+    p.set_defaults(func=cmd_selftest)
     return parser
 
 
