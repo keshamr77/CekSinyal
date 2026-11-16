@@ -12,7 +12,7 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 | M3 | `interfaces` + speedtest ringan/penuh | selesai (perlu uji manual dengan tethering) |
 | M4 | `report --kos` (Markdown + HTML) | selesai |
 | M5 | Uploader Google Sheets (store-and-forward) | selesai (perlu uji manual dengan spreadsheet asli) |
-| M6 | Bot Telegram (alert + ringkasan harian) | belum |
+| M6 | Bot Telegram (alert + ringkasan harian) | selesai (perlu uji manual dengan bot asli) |
 | M7 | `run`, `selftest`, README lengkap | belum |
 
 ## Rencana per milestone
@@ -136,6 +136,21 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 - Perintah tambahan: `upload` (kirim sekali sekarang).
 - Dependensi baru: `gspread`.
 
+### M6
+- Alert dikirim untuk: `diagnosis_changed` yang hasil barunya bermasalah (termasuk diagnosis pertama yang langsung
+  bermasalah), `signal_lost`, dan semua `collector_error`. Kembali ke Normal tidak di-alert.
+- Kunci batas frekuensi = (kos, operator, jenis alert); untuk perubahan diagnosis jenisnya memuat hasil baru, jadi
+  "→ Interferensi" dan "→ Cakupan lemah" dihitung terpisah. `collector_error` satu kunci per operator apa pun isinya.
+- Alert yang tertahan ditandai `notified=1` (tidak dikirim belakangan). Status batas frekuensi disimpan di memori
+  (hilang kalau program di-restart).
+- Gagal kirim → `notified=0`, berhenti di kegagalan pertama, dicoba lagi putaran berikut; event > 2 jam dibuang.
+- Pesan teks polos (tanpa parse_mode) supaya isi `detail` tidak merusak format. Pesan memuat rincian jendela dari
+  tabel `diagnoses` (dicocokkan lewat ts event = window_end) dan saran.
+- Token: hanya dari lingkungan/.env, `repr=False` di dataclass, dan teks exception `requests` (yang memuat URL) disaring.
+- Ringkasan harian: periode 00:00 lokal → saat kirim; penanda terkirim = event `daily_summary` (tipe event baru).
+  "RSRP lemah" = `telegram.weak_rsrp_dbm` (−100).
+- Perintah tambahan: `summary [--send] [--hours N]`.
+
 ## Hasil verifikasi dengan data asli
 
 ### M1
@@ -173,6 +188,10 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 - [ ] M3: di Linux/Orange Pi, cek apakah perlu policy routing supaya `source_ip` keluar lewat interface tethering.
 - [ ] M3: URL unduhan bawaan (Cloudflare) bisa diakses dari semua operator; kalau tidak, ganti `speedtest.download_url`.
 - [ ] M3: perkiraan pemakaian kuota uji penuh per jam; matikan (`full_interval_minutes: 0`) kalau terlalu boros.
+- [ ] M6: buat bot + grup, isi `.env`, `summary --send`: pesan sampai, emoji dan tanda minus tampil benar.
+- [ ] M6: cabut HP saat `run`: alert "gangguan alat ukur" datang sekali, bukan tiap 10 detik.
+- [ ] M6: paksa sinyal putus (mode pesawat ±10 menit): alert 🔴 datang setelah jendela selesai; masuk laporan.
+- [ ] M6: ringkasan harian datang sekali pada jam yang diatur (coba set `daily_summary_time` beberapa menit ke depan).
 - [ ] M5: buat service account + spreadsheet bersama, isi `.env`/config, jalankan `upload`: tab dan judul kolom dibuat,
       baris masuk, dan `uploaded` menjadi 1 di SQLite.
 - [ ] M5: matikan internet saat `run`, nyalakan lagi: baris tertunda terkirim semua, tidak ada yang hilang.

@@ -55,7 +55,7 @@ ceksinyal/
 - Kolom baru ditambahkan ke DB lama lewat `db.migrate()` (ALTER TABLE ADD COLUMN, cek PRAGMA table_info); data lama tidak dihapus.
 - `speedtests`: id, ts, kos, operator, method (light/full), source_ip, ping_ms, download_mbps, upload_mbps, ok (0/1), error, uploaded
 - `diagnoses`: id, ts, kos, operator, window_start, window_end, n_samples, median_rsrp, median_sinr, median_download, cell_changes, result, advice, detail (catatan aturan, mis. "handover: tidak tersedia"), uploaded
-- `events`: id, ts, kos, operator, type (signal_lost/diagnosis_changed/collector_error), detail, notified (0/1)
+- `events`: id, ts, kos, operator, type (signal_lost/diagnosis_changed/collector_error/daily_summary), detail, notified (0/1). `diagnosis_changed`/`signal_lost` ber-detail `Lama -> Baru; ...` dan ber-ts akhir jendela; `daily_summary` hanya penanda ringkasan sudah terkirim (detail = tanggal lokal)
 
 ## Pengumpulan data
 - Perintah utama: `adb -s <serial> shell dumpsys telephony.registry`. Ambil dari bagian `mSignalStrength` (CellSignalStrengthLte: rsrp, rsrq, rssnr/sinr, rssi) dan identitas sel (CellIdentityLte: mCi, mPci, mEarfcn, mBands). Dukung juga NR (5G) kalau ada.
@@ -91,7 +91,9 @@ Kalau dua operator ada di kos yang sama, buat juga rekomendasi: operator dengan 
 ## Bot Telegram
 - Pakai HTTP API langsung (`requests` ke sendMessage). Token dan chat ID dari `.env`.
 - Alert saat diagnosis berubah dari Normal ke bermasalah, saat sinyal putus, dan saat collector error. Maksimal satu alert yang sama per operator per 15 menit.
-- Ringkasan harian: diagnosis dominan per operator, persentase waktu RSRP < −100 dBm, jumlah kejadian putus.
+- Ringkasan harian: diagnosis dominan per operator, persentase waktu RSRP < −100 dBm, jumlah kejadian putus. Dikirim sekali sehari setelah `telegram.daily_summary_time` (waktu lokal, bawaan 21:00).
+- Alert yang tertahan batas 15 menit ditandai notified=1 (tidak menumpuk); kegagalan kirim membiarkan notified=0 untuk dicoba lagi; event berumur > 2 jam tidak dikirim. Perubahan kembali ke Normal tidak di-alert. Token tidak boleh muncul di log/pesan error.
+- `python -m ceksinyal summary [--send]` menampilkan/mengirim ringkasan sekarang.
 
 ## CLI (target)
 - `python -m ceksinyal devices` — daftar HP terhubung, serial, operator

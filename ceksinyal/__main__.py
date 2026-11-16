@@ -423,6 +423,39 @@ def cmd_upload(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
         conn.close()
 
 
+def cmd_summary(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    from datetime import timedelta
+
+    from .bot.telegram import Notifier, TelegramClient, TelegramError, make_client
+
+    conn = _open_existing_db(cfg, args)
+    if conn is None:
+        return 1
+    try:
+        client = make_client(cfg)
+        if args.send and client is None:
+            log.error("bot belum siap: isi TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID di .env")
+            return 1
+        notifier = Notifier(cfg, conn, client or TelegramClient("", ""))
+        now = db.utc_now()
+        if args.hours:
+            start = now - timedelta(hours=args.hours)
+        else:
+            start = now.astimezone(cfg.tz).replace(hour=0, minute=0, second=0, microsecond=0)
+        text = notifier.summary_text(start, now)
+        print(text)
+        if args.send:
+            try:
+                client.send(text)
+            except TelegramError as exc:
+                log.error("%s", exc)
+                return 1
+            print("\nTerkirim ke Telegram.")
+        return 0
+    finally:
+        conn.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", default=argparse.SUPPRESS, help="path config.yaml")
@@ -491,6 +524,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("upload", parents=[common], help="kirim baris yang belum ter-upload ke Google Sheets sekarang")
     p.set_defaults(func=cmd_upload)
+
+    p = sub.add_parser("summary", parents=[common], help="tampilkan ringkasan hari ini (seperti ringkasan harian bot)")
+    p.add_argument("--send", action="store_true", help="kirim juga ke Telegram")
+    p.add_argument("--hours", type=float, help="periode N jam terakhir (bawaan: sejak 00:00 waktu lokal)")
+    p.add_argument("--db", help="path database (bawaan: database di config)")
+    p.set_defaults(func=cmd_summary)
     return parser
 
 

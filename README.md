@@ -3,7 +3,7 @@
 Pemantau sinyal seluler untuk tugas besar ET4132 Kapita Selekta Teknik Telekomunikasi (ITB, Kelompok 2).
 HP Android disambungkan ke laptop lewat USB; laptop membaca kualitas sinyal lewat ADB dan menyimpannya ke SQLite.
 
-Status: **collector** (`devices`, `probe`, `collect`), **diagnosis** (`diagnose`), **uji kecepatan** (`interfaces`, `speedtest`), **laporan bukti** (`report`), dan **uploader Google Sheets** (`upload`) sudah jalan. Bot belum.
+Status: **collector** (`devices`, `probe`, `collect`), **diagnosis** (`diagnose`), **uji kecepatan** (`interfaces`, `speedtest`), **laporan bukti** (`report`), **uploader Google Sheets** (`upload`), dan **bot Telegram** (`summary`) sudah jalan.
 
 ## Persiapan
 
@@ -39,6 +39,7 @@ Status: **collector** (`devices`, `probe`, `collect`), **diagnosis** (`diagnose`
 | `python -m ceksinyal diagnose [--rerun] [--db <path>] [--kos <nama>]` | Diagnosis per jendela 10 menit untuk data yang belum didiagnosis; `--rerun` menghapus hasil lama dan menghitung ulang semuanya (setelah ambang diubah). |
 | `python -m ceksinyal report --kos <nama> [--db <path>] [--out <folder>] [--since <tgl>] [--until <tgl>]` | Laporan bukti satu kos: file Markdown dan HTML di `data/reports/`. |
 | `python -m ceksinyal upload` | Kirim sekarang semua baris yang belum ter-upload ke Google Sheets. |
+| `python -m ceksinyal summary [--send] [--hours <n>] [--db <path>]` | Tampilkan ringkasan hari ini (isi yang sama dengan ringkasan harian bot); `--send` mengirimnya ke Telegram. |
 | `python -m ceksinyal fix-sinr [--db <path>] [--serial <serial>] [--dry-run]` | Koreksi SINR LTE lama yang tercatat 10x lipat (HP Android 10, lihat di bawah). Selalu coba `--dry-run` dulu. |
 | `python -m ceksinyal fix-band [--db <path>] [--dry-run]` | Koreksi band LTE lama yang tidak cocok dengan EARFCN (lihat "Identitas sel"). Selalu coba `--dry-run` dulu. |
 
@@ -69,6 +70,7 @@ Kode keluar `probe`: 0 = semua berhasil, 1 = HP/ADB bermasalah, 2 = ada yang par
 | `devices[].source_ip` | – | IP laptop di interface USB tethering HP ini. Wajib untuk uji kecepatan. |
 | `speedtest.*` | lihat "Uji kecepatan" | Jadwal dan target uji kecepatan. |
 | `sheets.*` | lihat "Dashboard Google Sheets" | Spreadsheet bersama dan cara upload. |
+| `telegram.*` | lihat "Bot Telegram" | Batas frekuensi alert dan jam ringkasan harian. |
 | `devices[].sinr_unit` | `auto` | Satuan rssnr LTE di dumpsys HP ini: `auto` (dari versi Android), `db`, atau `deci_db` (0,1 dB). Lihat "Satuan SINR LTE". |
 
 Kalau `devices` kosong, collector memakai HP apa saja yang terhubung (maks. `max_devices`).
@@ -226,6 +228,34 @@ Cara kerja (store-and-forward):
 - Waktu di sheet dalam UTC ISO 8601 (WIB = UTC+7).
 - `diagnose --rerun` membuat baris diagnosis baru (`uploaded=0`), jadi baris diagnosis lama di sheet perlu dihapus manual
   kalau tidak ingin ganda.
+
+## Bot Telegram
+
+Menyiapkan:
+
+1. Buat bot lewat **@BotFather** (`/newbot`) dan salin tokennya.
+2. Masukkan bot ke grup kelompok (atau chat langsung dengan bot), kirim satu pesan, lalu ambil *chat ID*-nya, misalnya
+   dengan membuka `https://api.telegram.org/bot<TOKEN>/getUpdates` di browser (`chat.id`; ID grup bernilai negatif).
+3. Isi `.env`: `TELEGRAM_BOT_TOKEN=...` dan `TELEGRAM_CHAT_ID=...`. Token hanya dibaca dari `.env`/lingkungan, tidak dari
+   `config.yaml`, dan tidak pernah ditulis ke log.
+4. Cek dengan `python -m ceksinyal summary --send`.
+
+Yang dikirim bot (saat `run` berjalan):
+
+| Pesan | Pemicu |
+|---|---|
+| ⚠️ Diagnosis berubah | Event `diagnosis_changed` ke hasil bermasalah (mis. Normal → Interferensi), berisi jendela, median RSRP/SINR, dan saran. Kembali ke Normal tidak di-alert. |
+| 🔴 Sinyal putus | Event `signal_lost` (≥ 50% sampel jendela tanpa layanan). |
+| ⚙️ Gangguan alat ukur | Event `collector_error` (HP terputus/unauthorized, adb hilang, parsing gagal). |
+| 📊 Ringkasan harian | Sekali sehari setelah `telegram.daily_summary_time` (bawaan 21:00 waktu lokal): per operator diagnosis dominan, persentase waktu RSRP < −100 dBm, jumlah kejadian putus; plus rekomendasi operator kalau ada dua. Periode: 00:00 sampai saat dikirim. |
+
+- **Batas frekuensi**: maksimal satu alert *yang sama* per operator per `alert_cooldown_minutes` (15 menit). "Sama" =
+  jenis event yang sama (dan untuk perubahan diagnosis, hasil baru yang sama). Alert yang tertahan tidak dikirim
+  belakangan; event-nya tetap ada di tabel `events` dan masuk laporan. Batas ini diingat selama program berjalan.
+- **Internet mati**: pengiriman gagal → event tetap `notified=0` dan dicoba lagi di putaran berikut; event yang sudah
+  lebih dari 2 jam tidak dikirim lagi. Ringkasan harian dicoba ulang sampai berhasil pada hari itu, dan ditandai di
+  tabel `events` (tipe `daily_summary`) supaya tidak terkirim dua kali walau program di-restart.
+- Diagnosis yang dihitung dari data lama (`diagnose --rerun`, atau jendela berumur > 30 menit) tidak memicu alert.
 
 ## Laporan bukti
 

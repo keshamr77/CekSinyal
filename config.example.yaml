@@ -55,6 +55,13 @@ sheets:
   batch_size: 500              # baris per permintaan API
   aggregate_measurements: true # true = rata-rata per menit per HP; false = setiap sampel
 
+# Bot Telegram. Aktif kalau TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID ada di .env (token TIDAK ditulis di sini).
+telegram:
+  enabled: true
+  alert_cooldown_minutes: 15   # maksimal satu alert yang sama per operator per selang ini
+  daily_summary_time: "21:00"  # waktu lokal ringkasan harian; "" = tanpa ringkasan
+  weak_rsrp_dbm: -100          # ambang "RSRP lemah" di ringkasan harian
+
 # HP yang dibaca. Serial dilihat dengan: python -m ceksinyal devices
 # Kalau daftar ini kosong, collector memakai HP apa saja yang terhubung (maks. max_devices)
 # dan nama operator diambil dari getprop gsm.operator.alpha.
