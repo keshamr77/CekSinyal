@@ -33,6 +33,19 @@ diagnosis:
   handover_changes: 4          # pergantian sel dalam satu jendela -> "Handover bolak-balik"
   min_metric_samples: 5        # nilai RSRP/SINR minimal supaya median dianggap tersedia
 
+# Uji kecepatan lewat USB tethering (butuh devices[].source_ip). Memakai kuota data HP:
+# uji ringan ±1 MB, uji penuh bisa puluhan sampai ratusan MB per kali.
+speedtest:
+  enabled: true
+  light_interval_minutes: 15   # ping + unduh file kecil
+  full_interval_minutes: 60    # speedtest-cli; 0 = matikan uji penuh (hemat kuota)
+  ping_host: 1.1.1.1           # ping = waktu koneksi TCP ke host:port ini
+  ping_port: 443
+  ping_count: 3
+  download_url: https://speed.cloudflare.com/__down?bytes=1000000
+  timeout_seconds: 30
+  full_timeout_seconds: 180
+
 # HP yang dibaca. Serial dilihat dengan: python -m ceksinyal devices
 # Kalau daftar ini kosong, collector memakai HP apa saja yang terhubung (maks. max_devices)
 # dan nama operator diambil dari getprop gsm.operator.alpha.
@@ -45,5 +58,7 @@ devices:
     #             (SDK <= 29) memakai 0,1 dB, Android 11+ memakai dB (bawaan)
     #   db      = paksa dB (nilai rssnr dipakai apa adanya)
     #   deci_db = paksa 0,1 dB (nilai rssnr selalu dibagi 10)
+    # source_ip: 192.168.42.129  # opsional, IP LAPTOP di interface USB tethering HP ini
+    #   (lihat: python -m ceksinyal interfaces). Tanpa ini uji kecepatan HP ini dilewati.
   - serial: 9A1B2C3D
     operator: Indosat

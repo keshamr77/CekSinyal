@@ -8,7 +8,9 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from . import __version__, db, fix_band, fix_sinr
+from . import __version__, db, fix_band, fix_sinr, netif
+from .speedtest import METHOD_FULL, METHOD_LIGHT
+from .speedtest.runner import SpeedtestRunner
 from .collector.adb import Adb, AdbError
 from .collector.parser import SignalReading, parse_registry
 from .collector.service import OPERATOR_PROP, Collector, RawStore, probe
@@ -275,6 +277,61 @@ def cmd_diagnose(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
         conn.close()
 
 
+def cmd_interfaces(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    try:
+        interfaces = netif.list_interfaces()
+    except ImportError:
+        log.error("psutil belum terpasang: pip install -r requirements.txt")
+        return 1
+    if not interfaces:
+        print("Tidak ada interface dengan alamat IPv4.")
+        return 0
+    used = {d.source_ip: d for d in cfg.devices if d.source_ip}
+    rows = []
+    for i in interfaces:
+        dev = used.get(i.ipv4)
+        note = i.hint
+        if dev:
+            note = f"dipakai di config: {dev.operator or dev.serial}" + (f" ({note})" if note else "")
+        rows.append([i.name, i.ipv4, i.netmask or "-", {True: "aktif", False: "mati", None: "?"}[i.is_up], note])
+    _print_table(["INTERFACE", "IPv4", "NETMASK", "STATUS", "KETERANGAN"], rows)
+    missing = [f"{d.source_ip} ({d.operator or d.serial})" for d in cfg.devices
+               if d.source_ip and d.source_ip not in {i.ipv4 for i in interfaces}]
+    if missing:
+        print(f"\nsource_ip di config yang TIDAK ada di laptop saat ini: {', '.join(missing)}")
+    print(
+        "\nCara mengisi: nyalakan USB tethering di HP (dan matikan Wi-Fi HP), jalankan perintah ini lagi, lalu salin\n"
+        "IPv4 interface yang baru muncul ke devices[].source_ip di config.yaml. IP bisa berubah setelah HP dicabut."
+    )
+    return 0
+
+
+def cmd_speedtest(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    try:
+        conn = db.connect(cfg.database)
+    except Exception as exc:
+        log.error("tidak bisa membuka database %s: %s", cfg.database, exc)
+        return 1
+    try:
+        runner = SpeedtestRunner(cfg, conn)
+        targets = runner.targets()
+        if not targets:
+            print("Tidak ada HP dengan source_ip di config. Lihat: python -m ceksinyal interfaces")
+            return 1
+        method = METHOD_FULL if args.full else METHOD_LIGHT
+        rows, code = [], 0
+        for target in targets:
+            r = runner.run_one(target, method, save=not args.no_save)
+            rows.append([target.operator, r.method, r.source_ip or "-", _fmt(r.ping_ms, " ms"),
+                         _fmt(r.download_mbps, " Mbps"), _fmt(r.upload_mbps, " Mbps"),
+                         "OK" if r.ok else "GAGAL", r.error or ""])
+            code = code if r.ok else 2
+        _print_table(["OPERATOR", "METODE", "IP SUMBER", "PING", "UNDUH", "UNGGAH", "STATUS", "CATATAN"], rows)
+        return code
+    finally:
+        conn.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", default=argparse.SUPPRESS, help="path config.yaml")
@@ -321,6 +378,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--db", help="path database (bawaan: database di config)")
     p.add_argument("--kos", help="hanya kos ini (bawaan: semua kos di database)")
     p.set_defaults(func=cmd_diagnose)
+
+    p = sub.add_parser("interfaces", parents=[common],
+                       help="daftar interface jaringan dan IP (untuk mengisi source_ip tethering)")
+    p.set_defaults(func=cmd_interfaces)
+
+    p = sub.add_parser("speedtest", parents=[common], help="jalankan uji kecepatan sekali untuk tiap operator")
+    p.add_argument("--full", action="store_true", help="uji penuh (speedtest-cli) alih-alih uji ringan")
+    p.add_argument("--no-save", action="store_true", help="jangan simpan hasil ke database")
+    p.set_defaults(func=cmd_speedtest)
     return parser
 
 

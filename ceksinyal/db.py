@@ -142,12 +142,25 @@ def insert_measurement(conn: sqlite3.Connection, row: dict[str, Any]) -> int:
     return int(cur.lastrowid)
 
 
+def insert_speedtest(conn: sqlite3.Connection, ts: str, kos: str, operator: str | None, result: Any) -> int:
+    """Simpan satu hasil uji kecepatan (objek dengan atribut SpeedResult)."""
+    cur = conn.execute(
+        "INSERT INTO speedtests (ts, kos, operator, method, source_ip, ping_ms, download_mbps, upload_mbps, ok, error) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (ts, kos, operator, result.method, result.source_ip, result.ping_ms, result.download_mbps,
+         result.upload_mbps, 1 if result.ok else 0, result.error),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
 def insert_event(
-    conn: sqlite3.Connection, ts: str, kos: str, operator: str | None, type_: str, detail: str
+    conn: sqlite3.Connection, ts: str, kos: str, operator: str | None, type_: str, detail: str,
+    notified: int = 0,
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO events (ts, kos, operator, type, detail) VALUES (?, ?, ?, ?, ?)",
-        (ts, kos, operator, type_, detail),
+        "INSERT INTO events (ts, kos, operator, type, detail, notified) VALUES (?, ?, ?, ?, ?, ?)",
+        (ts, kos, operator, type_, detail, notified),
     )
     conn.commit()
     return int(cur.lastrowid)

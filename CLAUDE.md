@@ -67,8 +67,9 @@ ceksinyal/
 
 ## Uji kecepatan
 - Lewat USB tethering HP, diarahkan ke interface masing-masing operator dengan IP sumber dari config (`speedtest-cli --source <IP>`). Sediakan perintah bantu yang menampilkan daftar interface dan IP (pakai `psutil`) supaya user bisa mengisi config.
-- Ringan tiap 15 menit: ping (3 kali) + unduh file kecil (±1 MB). Penuh tiap 60 menit: `speedtest-cli --json`.
-- Kalau gagal, simpan baris dengan ok=0 dan pesan error.
+- Ringan tiap 15 menit: ping (3 kali; diukur sebagai waktu koneksi TCP dari IP sumber, bukan ICMP, supaya lintas-OS) + unduh file kecil (±1 MB). Penuh tiap 60 menit: `speedtest-cli --json`.
+- Kalau gagal, simpan baris dengan ok=0 dan pesan error. HP tanpa `source_ip` di config dilewati (jangan menguji lewat koneksi lain). Jadwal dihitung dari waktu uji terakhir di tabel `speedtests`.
+- `python -m ceksinyal speedtest [--full] [--no-save]` menjalankan satu uji sekarang.
 
 ## Aturan diagnosis (ambang di config, bisa dikalibrasi)
 Dihitung per operator untuk jendela 10 menit terakhir. Periksa berurutan, berhenti di "ya" pertama:

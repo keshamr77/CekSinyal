@@ -9,7 +9,7 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 |---|---|---|
 | M1 | Identitas sel satu blok, band dari EARFCN, `fix-band` | selesai |
 | M2 | Diagnosis (`diagnosis/rules.py`, `engine.py`, `diagnose [--rerun]`) | selesai |
-| M3 | `interfaces` + speedtest ringan/penuh | belum |
+| M3 | `interfaces` + speedtest ringan/penuh | selesai (perlu uji manual dengan tethering) |
 | M4 | `report --kos` (Markdown + HTML) | belum |
 | M5 | Uploader Google Sheets (store-and-forward) | belum |
 | M6 | Bot Telegram (alert + ringkasan harian) | belum |
@@ -93,6 +93,21 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
   `run`/`selftest`), dengan kotak peringatan yang mencolok.
 - Config baru: `timezone_offset_hours` (bawaan 7 = WIB) untuk tampilan; data tetap UTC.
 
+### M3
+- "Ping" = waktu jabat tangan TCP ke `1.1.1.1:443` dari socket yang di-bind ke IP sumber (median 3 kali), bukan ICMP.
+  Alasan: opsi dan bahasa keluaran `ping` berbeda per OS, dan mengikat IP sumber lewat socket sama di semua OS.
+- Unduhan ringan: `requests` dengan adapter `source_address`, URL bawaan `https://speed.cloudflare.com/__down?bytes=1000000`
+  (bisa diganti di config). Proxy sistem diabaikan (`trust_env=False`).
+- Uji penuh: `python -m speedtest --json --secure --source <IP>` lewat interpreter yang sama (tidak bergantung PATH).
+- HP tanpa `source_ip` DILEWATI (tidak diuji lewat koneksi bawaan laptop) karena hasilnya akan menyesatkan.
+- Sebelum uji, `source_ip` dicek ada di laptop (psutil); kalau tidak → baris `ok=0` "IP sumber ... tidak ada di laptop".
+- Uji ringan dianggap `ok=1` kalau unduhan berhasil; ping yang gagal hanya dicatat di `error`.
+- Jadwal dari database: uji pertama ringan, uji penuh pertama satu selang (15 menit) kemudian, lalu tiap 60 menit;
+  slot uji penuh menggantikan uji ringan. `full_interval_minutes: 0` mematikan uji penuh.
+- Perintah tambahan di luar daftar CLAUDE.md: `speedtest [--full] [--no-save]` untuk uji sekali (berguna saat menyiapkan
+  tethering).
+- Dependensi baru: `psutil`, `requests`, `speedtest-cli`.
+
 ## Hasil verifikasi dengan data asli
 
 ### M1
@@ -117,6 +132,13 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 ## Perlu uji manual (oleh tim, dengan perangkat asli)
 
 - [ ] M1: `probe` di Infinix sekarang menampilkan band 3; jalankan `fix-band` pada DB Infinix yang asli (ada backup otomatis).
+- [ ] M3: `interfaces` dengan USB tethering menyala: interface HP muncul dan diberi tanda; isi `source_ip`.
+- [ ] M3: `speedtest` dan `speedtest --full` lewat tethering (Wi-Fi HP mati). Pastikan trafik benar-benar lewat HP:
+      bandingkan dengan Wi-Fi laptop menyala/mati, dan lihat pemakaian data di HP.
+- [ ] M3: dua HP tethering bersamaan di satu laptop: tiap `source_ip` mengukur operator yang benar.
+- [ ] M3: di Linux/Orange Pi, cek apakah perlu policy routing supaya `source_ip` keluar lewat interface tethering.
+- [ ] M3: URL unduhan bawaan (Cloudflare) bisa diakses dari semua operator; kalau tidak, ganti `speedtest.download_url`.
+- [ ] M3: perkiraan pemakaian kuota uji penuh per jam; matikan (`full_interval_minutes: 0`) kalau terlalu boros.
 - [ ] M2: jalankan `diagnose` pada data ≥ 1 jam dari dua operator di kos yang sama dan cek rekomendasi operatornya masuk akal.
 - [ ] M2: kalibrasi ambang (`diagnosis.*`) dengan lembar validasi; setelah diubah jalankan `diagnose --rerun`.
 - [ ] M1: `probe` di HP lain (Samsung/Oppo/Vivo, dan HP 5G) lalu tambahkan fixture `real_*.txt`.

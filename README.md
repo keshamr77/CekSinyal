@@ -3,7 +3,7 @@
 Pemantau sinyal seluler untuk tugas besar ET4132 Kapita Selekta Teknik Telekomunikasi (ITB, Kelompok 2).
 HP Android disambungkan ke laptop lewat USB; laptop membaca kualitas sinyal lewat ADB dan menyimpannya ke SQLite.
 
-Status: **collector** (`devices`, `probe`, `collect`) dan **diagnosis** (`diagnose`) sudah jalan. Speedtest, uploader, bot, dan laporan belum.
+Status: **collector** (`devices`, `probe`, `collect`), **diagnosis** (`diagnose`), dan **uji kecepatan** (`interfaces`, `speedtest`) sudah jalan. Uploader, bot, dan laporan belum.
 
 ## Persiapan
 
@@ -34,6 +34,8 @@ Status: **collector** (`devices`, `probe`, `collect`) dan **diagnosis** (`diagno
 | `python -m ceksinyal probe` | Baca sekali dari tiap HP, tampilkan hasil parsing, simpan output mentah ke `data/raw/probe_<serial>_<waktu>.txt`. |
 | `python -m ceksinyal probe --file <path>` | Parse file output dumpsys tanpa HP (untuk mengecek fixture). |
 | `python -m ceksinyal collect` | Collector: baca 1–2 HP tiap 10 detik dan simpan ke tabel `measurements`. Hentikan dengan Ctrl+C. |
+| `python -m ceksinyal interfaces` | Daftar interface jaringan laptop dan IPv4-nya, untuk mengisi `devices[].source_ip`. |
+| `python -m ceksinyal speedtest [--full] [--no-save]` | Uji kecepatan sekali sekarang untuk tiap HP yang punya `source_ip` (ringan; `--full` = speedtest-cli). |
 | `python -m ceksinyal diagnose [--rerun] [--db <path>] [--kos <nama>]` | Diagnosis per jendela 10 menit untuk data yang belum didiagnosis; `--rerun` menghapus hasil lama dan menghitung ulang semuanya (setelah ambang diubah). |
 | `python -m ceksinyal fix-sinr [--db <path>] [--serial <serial>] [--dry-run]` | Koreksi SINR LTE lama yang tercatat 10x lipat (HP Android 10, lihat di bawah). Selalu coba `--dry-run` dulu. |
 | `python -m ceksinyal fix-band [--db <path>] [--dry-run]` | Koreksi band LTE lama yang tidak cocok dengan EARFCN (lihat "Identitas sel"). Selalu coba `--dry-run` dulu. |
@@ -61,6 +63,8 @@ Kode keluar `probe`: 0 = semua berhasil, 1 = HP/ADB bermasalah, 2 = ada yang par
 | `devices[].serial` | – | Serial ADB HP. |
 | `devices[].operator` | – | Nama operator. Kalau kosong: `getprop gsm.operator.alpha`, lalu nama dari dumpsys. |
 | `devices[].phone_id` | otomatis | Slot SIM untuk HP dual-SIM (0/1). Kalau kosong, dipilih slot yang punya sinyal dan koneksi data aktif. |
+| `devices[].source_ip` | – | IP laptop di interface USB tethering HP ini. Wajib untuk uji kecepatan. |
+| `speedtest.*` | lihat "Uji kecepatan" | Jadwal dan target uji kecepatan. |
 | `devices[].sinr_unit` | `auto` | Satuan rssnr LTE di dumpsys HP ini: `auto` (dari versi Android), `db`, atau `deci_db` (0,1 dB). Lihat "Satuan SINR LTE". |
 
 Kalau `devices` kosong, collector memakai HP apa saja yang terhubung (maks. `max_devices`).
@@ -115,6 +119,39 @@ Kalau `devices` kosong, collector memakai HP apa saja yang terhubung (maks. `max
   Diagnosis nanti sebaiknya hanya memakai baris `raw_ok=1`.
 - **HP terputus / unauthorized / adb hilang**: dicatat sekali sebagai event `collector_error` saat status
   berubah, lalu dicoba lagi tiap putaran. Program tidak berhenti karena satu HP bermasalah.
+
+## Uji kecepatan
+
+Uji kecepatan dijalankan dari laptop **lewat USB tethering HP**, supaya yang diukur adalah jaringan operator itu,
+bukan Wi-Fi laptop. Tiap HP diarahkan lewat IP sumber (`devices[].source_ip`).
+
+Cara menyiapkan:
+
+1. Di HP: matikan Wi-Fi, nyalakan data seluler, lalu nyalakan *USB tethering* (Setelan → Hotspot & tethering).
+   USB debugging tetap menyala; ADB dan tethering bisa jalan bersamaan di satu kabel.
+2. Jalankan `python -m ceksinyal interfaces`. Interface baru yang muncul (biasanya `192.168.42.x`, bertanda
+   "kemungkinan USB tethering Android") adalah milik HP itu. Untuk dua HP, colok satu per satu supaya jelas yang mana.
+3. Salin IPv4-nya ke `devices[].source_ip` di `config.yaml`, lalu coba `python -m ceksinyal speedtest`.
+
+| Uji | Jadwal bawaan | Isi | Kuota |
+|---|---|---|---|
+| Ringan (`light`) | tiap 15 menit | "ping" 3 kali + unduh satu file ±1 MB (`speedtest.download_url`) | ±1 MB |
+| Penuh (`full`) | tiap 60 menit | `python -m speedtest --json --secure --source <IP>` (speedtest-cli): ping, unduh, unggah | puluhan–ratusan MB |
+
+- **Ping** di uji ringan adalah waktu jabat tangan TCP ke `ping_host:ping_port` (median dari `ping_count` percobaan),
+  bukan ICMP, supaya sama di Windows/macOS/Linux dan bisa diikat ke IP sumber. Nilainya sedikit di atas ping ICMP.
+- **Kecepatan unduh ringan** dihitung dari satu file kecil, jadi di jaringan cepat cenderung lebih rendah daripada uji
+  penuh (koneksi belum sempat mencapai kecepatan puncak). Yang dipakai diagnosis adalah perbandingan terhadap median
+  operator itu sendiri, jadi tetap konsisten. Kalau batas waktu habis sebelum file selesai, kecepatan dihitung dari
+  byte yang sudah diterima.
+- **Jadwal dihitung dari tabel `speedtests`**, jadi restart tidak mengulang uji yang baru dijalankan. Uji pertama
+  selalu ringan; uji penuh pertama menyusul satu selang kemudian. Saat uji penuh jatuh tempo, uji ringan di slot itu
+  dilewati. `full_interval_minutes: 0` mematikan uji penuh (hemat kuota).
+- **Gagal** (tethering mati, IP sumber tidak ada di laptop, timeout, speedtest-cli error) → baris tetap disimpan dengan
+  `ok=0` dan pesan di kolom `error`. HP tanpa `source_ip` dilewati dengan satu peringatan di log.
+- **Linux**: mengikat IP sumber saja belum tentu memaksa paket keluar lewat interface tethering kalau ada rute bawaan
+  lain (Wi-Fi/Ethernet). Putuskan koneksi lain, atau atur *policy routing* untuk IP itu. Windows dan macOS memilih
+  interface dari IP sumber.
 
 ## Diagnosis
 
