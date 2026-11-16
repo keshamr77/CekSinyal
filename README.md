@@ -3,7 +3,7 @@
 Pemantau sinyal seluler untuk tugas besar ET4132 Kapita Selekta Teknik Telekomunikasi (ITB, Kelompok 2).
 HP Android disambungkan ke laptop lewat USB; laptop membaca kualitas sinyal lewat ADB dan menyimpannya ke SQLite.
 
-Status: **collector** (`devices`, `probe`, `collect`), **diagnosis** (`diagnose`), dan **uji kecepatan** (`interfaces`, `speedtest`) sudah jalan. Uploader, bot, dan laporan belum.
+Status: **collector** (`devices`, `probe`, `collect`), **diagnosis** (`diagnose`), **uji kecepatan** (`interfaces`, `speedtest`), dan **laporan bukti** (`report`) sudah jalan. Uploader dan bot belum.
 
 ## Persiapan
 
@@ -37,6 +37,7 @@ Status: **collector** (`devices`, `probe`, `collect`), **diagnosis** (`diagnose`
 | `python -m ceksinyal interfaces` | Daftar interface jaringan laptop dan IPv4-nya, untuk mengisi `devices[].source_ip`. |
 | `python -m ceksinyal speedtest [--full] [--no-save]` | Uji kecepatan sekali sekarang untuk tiap HP yang punya `source_ip` (ringan; `--full` = speedtest-cli). |
 | `python -m ceksinyal diagnose [--rerun] [--db <path>] [--kos <nama>]` | Diagnosis per jendela 10 menit untuk data yang belum didiagnosis; `--rerun` menghapus hasil lama dan menghitung ulang semuanya (setelah ambang diubah). |
+| `python -m ceksinyal report --kos <nama> [--db <path>] [--out <folder>] [--since <tgl>] [--until <tgl>]` | Laporan bukti satu kos: file Markdown dan HTML di `data/reports/`. |
 | `python -m ceksinyal fix-sinr [--db <path>] [--serial <serial>] [--dry-run]` | Koreksi SINR LTE lama yang tercatat 10x lipat (HP Android 10, lihat di bawah). Selalu coba `--dry-run` dulu. |
 | `python -m ceksinyal fix-band [--db <path>] [--dry-run]` | Koreksi band LTE lama yang tidak cocok dengan EARFCN (lihat "Identitas sel"). Selalu coba `--dry-run` dulu. |
 
@@ -53,6 +54,7 @@ Kode keluar `probe`: 0 = semua berhasil, 1 = HP/ADB bermasalah, 2 = ada yang par
 | `kos` | `belum-diatur` | Nama lokasi, ikut tersimpan di setiap baris. |
 | `database` | `data/ceksinyal.db` | File SQLite (relatif terhadap folder config). |
 | `raw_dir` | `data/raw` | Folder output mentah. |
+| `report_dir` | `data/reports` | Folder laporan bukti. |
 | `adb_path` | `adb` | Path ke adb. Kalau diisi selain `adb`, path harus benar (tidak ada pencarian cadangan). |
 | `timezone_offset_hours` | `7` | Zona waktu tampilan/laporan (7 = WIB). Data di database selalu UTC. |
 | `diagnosis.*` | lihat "Diagnosis" | Ambang aturan diagnosis. |
@@ -191,6 +193,31 @@ Hal yang perlu diketahui:
   jadi akan dikirim lagi ke Google Sheets (baris lama di sheet tidak terhapus otomatis).
 - **Rekomendasi operator**: kalau satu kos punya dua operator, dipilih yang porsi jendela Normal-nya tertinggi; kalau
   sama, yang median RSRP-nya lebih tinggi.
+
+## Laporan bukti
+
+`python -m ceksinyal report --kos <nama>` membuat dua file di `data/reports/` (tidak di-commit):
+`laporan_<kos>_<tanggal-jam>.md` dan `.html`. File HTML berdiri sendiri (grafik SVG di dalam file, tanpa internet,
+mengikuti mode terang/gelap, bisa dicetak ke PDF dari browser) sehingga bisa langsung dikirim ke pemilik kos atau operator.
+
+Isi laporan:
+
+- **Ringkasan per operator**: jumlah sampel, durasi, diagnosis dominan, median RSRP, persentase waktu RSRP < −100 dBm,
+  median SINR, persentase tanpa layanan, jumlah kejadian putus, median kecepatan unduh; plus rekomendasi operator kalau
+  ada dua operator di kos itu.
+- **RSRP sepanjang waktu** (HTML): satu garis per operator; garis terputus di tempat data bolong. Arahkan kursor untuk
+  melihat nilai.
+- **Distribusi RSRP/RSRQ/SINR**: statistik (min, P10, median, P90, maks) dan histogram, dengan garis ambang diagnosis.
+- **Linimasa diagnosis**: tiap jendela 10 menit, baris = jenis diagnosis; tabel semua jendela beserta catatannya.
+- **Kejadian sinyal putus** dan **gangguan pengumpulan data** (HP terputus, ADB, parsing; ini masalah alat ukur, bukan
+  jaringan).
+- **Keterbatasan data per HP**: mis. cell_id disembunyikan, EARFCN jarang terisi, SINR selalu 0, sampel versi lama yang
+  mungkin perlu `fix-sinr`, band yang perlu `fix-band`, data bolong, belum ada uji kecepatan, rekaman terlalu pendek.
+- **Ambang yang dipakai** saat laporan dibuat.
+
+Catatan: `--kos` harus persis sama dengan nama di data (kalau salah, daftar kos yang ada ditampilkan). Sebelum membuat
+laporan, jendela yang belum didiagnosis didiagnosis dulu (matikan dengan `--no-diagnose`). `--since`/`--until` memakai
+tanggal lokal `YYYY-MM-DD`. Waktu di laporan memakai `timezone_offset_hours`.
 
 ## TODO
 

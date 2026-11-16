@@ -99,7 +99,7 @@ Kalau dua operator ada di kos yang sama, buat juga rekomendasi: operator dengan 
 - `python -m ceksinyal collect` — collector saja
 - `python -m ceksinyal run` — semuanya: collector, speedtest, diagnosis, uploader, bot
 - `python -m ceksinyal diagnose [--rerun] [--db <path>] [--kos <nama>]`
-- `python -m ceksinyal report --kos <nama>` — laporan bukti
+- `python -m ceksinyal report --kos <nama> [--db <path>] [--out <folder>] [--since <tgl>] [--until <tgl>]` — laporan bukti (Markdown + HTML satu file dengan grafik SVG inline, tanpa pustaka grafik) di `data/reports/`; wajib memuat catatan keterbatasan data per HP
 - `python -m ceksinyal selftest` — cek ADB, config, koneksi Sheets, bot
 - `python -m ceksinyal fix-sinr [--db <path>] [--serial <serial>] [--dry-run]` — koreksi SINR lama 10x lipat (Android 10)
 - `python -m ceksinyal fix-band [--db <path>] [--dry-run]` — koreksi band LTE lama yang tidak cocok dengan EARFCN

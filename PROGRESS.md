@@ -10,7 +10,7 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 | M1 | Identitas sel satu blok, band dari EARFCN, `fix-band` | selesai |
 | M2 | Diagnosis (`diagnosis/rules.py`, `engine.py`, `diagnose [--rerun]`) | selesai |
 | M3 | `interfaces` + speedtest ringan/penuh | selesai (perlu uji manual dengan tethering) |
-| M4 | `report --kos` (Markdown + HTML) | belum |
+| M4 | `report --kos` (Markdown + HTML) | selesai |
 | M5 | Uploader Google Sheets (store-and-forward) | belum |
 | M6 | Bot Telegram (alert + ringkasan harian) | belum |
 | M7 | `run`, `selftest`, README lengkap | belum |
@@ -108,6 +108,21 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
   tethering).
 - Dependensi baru: `psutil`, `requests`, `speedtest-cli`.
 
+### M4
+- Keluaran: `data/reports/laporan_<kos>_<YYYYMMDD-HHMM>.md` dan `.html` (folder `data/` sudah di-.gitignore).
+- Grafik: SVG ditulis langsung oleh Python (tanpa matplotlib dsb.). Histogram satu warna; garis RSRP per operator dengan
+  warna tetap per urutan operator (biru, oranye; sudah dicek aman untuk buta warna); linimasa diagnosis memakai POSISI
+  baris untuk jenis diagnosis (bukan 7 warna, karena 7 warna status tidak bisa dibedakan penderita buta warna).
+  HTML punya mode gelap otomatis dan tooltip (JS kecil di dalam file). Markdown memakai histogram teks.
+- Deret RSRP diringkas (median per ember) kalau > 720 titik, dan diputus di jeda > max(60 detik, 6× interval).
+- "Persentase waktu RSRP lemah" di ringkasan memakai −100 dBm (seperti ringkasan harian bot), berbeda dari ambang
+  diagnosis cakupan lemah (−110 dBm).
+- `report` menjalankan diagnosis yang tertunda dulu (bisa dimatikan `--no-diagnose`), jadi laporan tidak kosong kalau
+  lupa menjalankan `diagnose`.
+- Catatan keterbatasan per HP dideteksi dari data: cell_id/EARFCN/SINR kosong atau jarang, SINR selalu 0, baris versi
+  lama (sinr_raw kosong) + pola salah skala, band tidak cocok EARFCN, jeda data, belum ada speedtest, rekaman < 1 jam,
+  baris raw_ok=0.
+
 ## Hasil verifikasi dengan data asli
 
 ### M1
@@ -129,6 +144,12 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
   (26 sampel, median RSRP −65 dBm, SINR 12 dB, 0 pergantian cell_id). Jadi "Normal" sesuai perkiraan untuk jendela yang
   cukup datanya.
 
+### M4 (laporan dari salinan kedua DB asli, dicek isinya dan tampilan HTML-nya lewat tangkapan layar)
+- Xiaomi "Garden House": 750 sampel, 2 jam 20 menit, median RSRP −91 dBm (rentang −100…−88), median SINR 4,5 dB, 0%
+  RSRP < −100, 13 Normal + 2 Data kurang, jeda 15 menit terlihat sebagai garis putus dan tercatat di keterbatasan,
+  "cell_id disembunyikan, EARFCN 21% sampel", "487 sampel versi lama". Band: 592 sampel tanpa band, B3 98, B40 60. Masuk akal.
+- Infinix "belum-diatur": catatan kos belum diisi muncul di atas; keterbatasan: belum ada speedtest, rekaman hanya 7 menit.
+
 ## Perlu uji manual (oleh tim, dengan perangkat asli)
 
 - [ ] M1: `probe` di Infinix sekarang menampilkan band 3; jalankan `fix-band` pada DB Infinix yang asli (ada backup otomatis).
@@ -139,6 +160,8 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 - [ ] M3: di Linux/Orange Pi, cek apakah perlu policy routing supaya `source_ip` keluar lewat interface tethering.
 - [ ] M3: URL unduhan bawaan (Cloudflare) bisa diakses dari semua operator; kalau tidak, ganti `speedtest.download_url`.
 - [ ] M3: perkiraan pemakaian kuota uji penuh per jam; matikan (`full_interval_minutes: 0`) kalau terlalu boros.
+- [ ] M4: buka laporan HTML di HP dan cetak ke PDF; cek terbaca oleh orang non-teknis (pemilik kos).
+- [ ] M4: laporan dengan dua operator di kos yang sama dan data ≥ 1 hari (grafik garis 2 warna, sumbu waktu berhari-hari).
 - [ ] M2: jalankan `diagnose` pada data ≥ 1 jam dari dua operator di kos yang sama dan cek rekomendasi operatornya masuk akal.
 - [ ] M2: kalibrasi ambang (`diagnosis.*`) dengan lembar validasi; setelah diubah jalankan `diagnose --rerun`.
 - [ ] M1: `probe` di HP lain (Samsung/Oppo/Vivo, dan HP 5G) lalu tambahkan fixture `real_*.txt`.

@@ -13,7 +13,7 @@ from .speedtest import METHOD_FULL, METHOD_LIGHT
 from .speedtest.runner import SpeedtestRunner
 from .collector.adb import Adb, AdbError
 from .collector.parser import SignalReading, parse_registry
-from .collector.service import OPERATOR_PROP, Collector, RawStore, probe
+from .collector.service import OPERATOR_PROP, Collector, RawStore, probe, safe_name
 from .config import Config, ConfigError, load_config
 from .diagnosis import engine
 
@@ -332,6 +332,60 @@ def cmd_speedtest(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
         conn.close()
 
 
+def _parse_day(cfg: Config, text: str | None, end: bool = False):
+    """Tanggal lokal YYYY-MM-DD (atau 'YYYY-MM-DD HH:MM') -> datetime; `end` = akhir hari itu."""
+    if not text:
+        return None
+    from datetime import datetime, timedelta
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(text, fmt).replace(tzinfo=cfg.tz)
+        except ValueError:
+            continue
+        return dt + timedelta(days=1) if end and fmt == "%Y-%m-%d" else dt
+    raise ValueError(f"tanggal tidak dikenali: {text!r} (pakai YYYY-MM-DD)")
+
+
+def cmd_report(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    from .report import data as report_data, render
+
+    try:
+        since, until = _parse_day(cfg, args.since), _parse_day(cfg, args.until, end=True)
+    except ValueError as exc:
+        log.error("%s", exc)
+        return 1
+    conn = _open_existing_db(cfg, args)
+    if conn is None:
+        return 1
+    try:
+        known = report_data.list_kos(conn)
+        if args.kos not in {k for k, _ in known}:
+            log.error("kos '%s' tidak ada di database %s", args.kos, _db_path(cfg, args))
+            if known:
+                print("Kos yang tersedia: " + ", ".join(f"{k} ({n} sampel)" for k, n in known))
+            return 1
+        if not args.no_diagnose:
+            engine.run_pending(conn, cfg.diagnosis, kos=args.kos)
+        data = report_data.build(conn, args.kos, cfg.diagnosis, cfg.tz, cfg.tz_label, since, until)
+    finally:
+        conn.close()
+    out_dir = Path(args.out) if args.out else cfg.report_dir
+    stamp = data.generated.astimezone(cfg.tz).strftime("%Y%m%d-%H%M")
+    base = f"laporan_{safe_name(args.kos)}_{stamp}"
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        md_path, html_path = out_dir / f"{base}.md", out_dir / f"{base}.html"
+        md_path.write_text(render.render_markdown(data), encoding="utf-8")
+        html_path.write_text(render.render_html(data), encoding="utf-8")
+    except OSError as exc:
+        log.error("gagal menulis laporan: %s", exc)
+        return 1
+    print(f"Laporan kos {args.kos}: {len(data.operators)} operator, {len(data.windows)} jendela diagnosis.")
+    print(f"  Markdown: {md_path}")
+    print(f"  HTML    : {html_path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", default=argparse.SUPPRESS, help="path config.yaml")
@@ -387,6 +441,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--full", action="store_true", help="uji penuh (speedtest-cli) alih-alih uji ringan")
     p.add_argument("--no-save", action="store_true", help="jangan simpan hasil ke database")
     p.set_defaults(func=cmd_speedtest)
+
+    p = sub.add_parser("report", parents=[common], help="laporan bukti per kos (Markdown + HTML)")
+    p.add_argument("--kos", required=True, help="nama kos (persis seperti di data)")
+    p.add_argument("--db", help="path database (bawaan: database di config)")
+    p.add_argument("--out", help="folder keluaran (bawaan: report_dir di config, data/reports)")
+    p.add_argument("--since", help="mulai tanggal lokal YYYY-MM-DD (bawaan: semua data)")
+    p.add_argument("--until", help="sampai tanggal lokal YYYY-MM-DD, termasuk hari itu")
+    p.add_argument("--no-diagnose", action="store_true",
+                   help="jangan mendiagnosis jendela yang belum didiagnosis sebelum membuat laporan")
+    p.set_defaults(func=cmd_report)
     return parser
 
 
