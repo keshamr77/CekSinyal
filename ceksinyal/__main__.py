@@ -13,6 +13,7 @@ from .collector.adb import Adb, AdbError
 from .collector.parser import SignalReading, parse_registry
 from .collector.service import OPERATOR_PROP, Collector, RawStore, probe
 from .config import Config, ConfigError, load_config
+from .diagnosis import engine
 
 log = logging.getLogger("ceksinyal")
 
@@ -134,6 +135,7 @@ def cmd_collect(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
             log.error("--interval minimal 1 detik")
             return 1
         cfg.collector.interval_seconds = args.interval
+    warn_kos(cfg)
     if not cfg.devices:
         log.warning("'devices' kosong di config: memakai HP apa saja yang terhubung (maks %d)",
                     cfg.collector.max_devices)
@@ -204,6 +206,75 @@ def cmd_fix_band(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
     return 0
 
 
+def warn_kos(cfg: Config) -> None:
+    """Peringatan jelas kalau nama kos belum diisi: datanya tidak bisa dibandingkan antar-kos."""
+    if not cfg.kos_is_set:
+        log.warning("=" * 72)
+        log.warning("'kos' BELUM DIISI di config.yaml: data akan tersimpan dengan kos='%s'.", cfg.kos)
+        log.warning("Isi dulu, mis.  kos: kos-garden-house-a  lalu jalankan ulang.")
+        log.warning("=" * 72)
+
+
+def _db_path(cfg: Config, args: argparse.Namespace) -> Path:
+    return Path(args.db) if getattr(args, "db", None) else cfg.database
+
+
+def _open_existing_db(cfg: Config, args: argparse.Namespace) -> sqlite3.Connection | None:
+    path = _db_path(cfg, args)
+    if not path.is_file():
+        log.error("database tidak ditemukan: %s", path)
+        return None
+    try:
+        return db.connect(path)
+    except sqlite3.Error as exc:
+        log.error("tidak bisa membuka database %s: %s", path, exc)
+        return None
+
+
+def _local(cfg: Config, dt) -> str:
+    return dt.astimezone(cfg.tz).strftime("%Y-%m-%d %H:%M")
+
+
+def cmd_diagnose(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    conn = _open_existing_db(cfg, args)
+    if conn is None:
+        return 1
+    try:
+        run = engine.rerun if args.rerun else engine.run_pending
+        rows = run(conn, cfg.diagnosis, kos=args.kos)
+        print(f"Database: {_db_path(cfg, args)}")
+        if not rows:
+            print("Tidak ada jendela baru untuk didiagnosis." + ("" if args.rerun else " (pakai --rerun untuk menghitung ulang)"))
+        else:
+            table = [
+                [r.kos, r.operator, _local(cfg, r.window_start), str(r.window.n_samples),
+                 _fmt(r.window.median_rsrp), _fmt(r.window.median_sinr), _fmt(r.window.median_download),
+                 _fmt(r.window.cell_changes), r.window.result, r.window.detail]
+                for r in rows
+            ]
+            _print_table(
+                ["KOS", "OPERATOR", f"JENDELA ({cfg.tz_label})", "N", "RSRP", "SINR", "UNDUH", "GANTI SEL", "HASIL", "CATATAN"],
+                table,
+            )
+            counts: dict[tuple[str, str], dict[str, int]] = {}
+            for r in rows:
+                c = counts.setdefault((r.kos, r.operator), {})
+                c[r.window.result] = c.get(r.window.result, 0) + 1
+            print()
+            for (kos, operator), c in counts.items():
+                parts = ", ".join(f"{name} {n}" for name, n in sorted(c.items(), key=lambda kv: -kv[1]))
+                print(f"{kos} / {operator}: {sum(c.values())} jendela ({parts})")
+        for kos in sorted({r[0] for r in conn.execute("SELECT DISTINCT kos FROM diagnoses")}):
+            if args.kos and kos != args.kos:
+                continue
+            rec = engine.recommend(conn, kos)
+            if rec.best:
+                print(f"Rekomendasi operator di {kos}: {rec.best}. {rec.reason}")
+        return 0
+    finally:
+        conn.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", default=argparse.SUPPRESS, help="path config.yaml")
@@ -243,6 +314,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--db", help="path database (bawaan: database di config)")
     p.add_argument("--dry-run", action="store_true", help="tampilkan ringkasan saja, tanpa menulis")
     p.set_defaults(func=cmd_fix_band)
+
+    p = sub.add_parser("diagnose", parents=[common], help="diagnosis jendela 10 menit yang belum didiagnosis")
+    p.add_argument("--rerun", action="store_true",
+                   help="hapus diagnosis lama dan hitung ulang semua data (setelah ambang diubah)")
+    p.add_argument("--db", help="path database (bawaan: database di config)")
+    p.add_argument("--kos", help="hanya kos ini (bawaan: semua kos di database)")
+    p.set_defaults(func=cmd_diagnose)
     return parser
 
 

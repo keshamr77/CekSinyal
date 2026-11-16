@@ -3,7 +3,7 @@
 Pemantau sinyal seluler untuk tugas besar ET4132 Kapita Selekta Teknik Telekomunikasi (ITB, Kelompok 2).
 HP Android disambungkan ke laptop lewat USB; laptop membaca kualitas sinyal lewat ADB dan menyimpannya ke SQLite.
 
-Status: **collector** sudah jalan (`devices`, `probe`, `collect`). Speedtest, diagnosis, uploader, bot, dan laporan belum.
+Status: **collector** (`devices`, `probe`, `collect`) dan **diagnosis** (`diagnose`) sudah jalan. Speedtest, uploader, bot, dan laporan belum.
 
 ## Persiapan
 
@@ -34,6 +34,7 @@ Status: **collector** sudah jalan (`devices`, `probe`, `collect`). Speedtest, di
 | `python -m ceksinyal probe` | Baca sekali dari tiap HP, tampilkan hasil parsing, simpan output mentah ke `data/raw/probe_<serial>_<waktu>.txt`. |
 | `python -m ceksinyal probe --file <path>` | Parse file output dumpsys tanpa HP (untuk mengecek fixture). |
 | `python -m ceksinyal collect` | Collector: baca 1–2 HP tiap 10 detik dan simpan ke tabel `measurements`. Hentikan dengan Ctrl+C. |
+| `python -m ceksinyal diagnose [--rerun] [--db <path>] [--kos <nama>]` | Diagnosis per jendela 10 menit untuk data yang belum didiagnosis; `--rerun` menghapus hasil lama dan menghitung ulang semuanya (setelah ambang diubah). |
 | `python -m ceksinyal fix-sinr [--db <path>] [--serial <serial>] [--dry-run]` | Koreksi SINR LTE lama yang tercatat 10x lipat (HP Android 10, lihat di bawah). Selalu coba `--dry-run` dulu. |
 | `python -m ceksinyal fix-band [--db <path>] [--dry-run]` | Koreksi band LTE lama yang tidak cocok dengan EARFCN (lihat "Identitas sel"). Selalu coba `--dry-run` dulu. |
 
@@ -51,6 +52,8 @@ Kode keluar `probe`: 0 = semua berhasil, 1 = HP/ADB bermasalah, 2 = ada yang par
 | `database` | `data/ceksinyal.db` | File SQLite (relatif terhadap folder config). |
 | `raw_dir` | `data/raw` | Folder output mentah. |
 | `adb_path` | `adb` | Path ke adb. Kalau diisi selain `adb`, path harus benar (tidak ada pencarian cadangan). |
+| `timezone_offset_hours` | `7` | Zona waktu tampilan/laporan (7 = WIB). Data di database selalu UTC. |
+| `diagnosis.*` | lihat "Diagnosis" | Ambang aturan diagnosis. |
 | `collector.interval_seconds` | `10` | Jeda antar-pembacaan. |
 | `collector.max_devices` | `2` | Jumlah HP maksimal yang dibaca. |
 | `collector.adb_timeout_seconds` | `15` | Batas waktu satu perintah adb. |
@@ -112,6 +115,45 @@ Kalau `devices` kosong, collector memakai HP apa saja yang terhubung (maks. `max
   Diagnosis nanti sebaiknya hanya memakai baris `raw_ok=1`.
 - **HP terputus / unauthorized / adb hilang**: dicatat sekali sebagai event `collector_error` saat status
   berubah, lalu dicoba lagi tiap putaran. Program tidak berhenti karena satu HP bermasalah.
+
+## Diagnosis
+
+`python -m ceksinyal diagnose` menghitung diagnosis per operator per kos untuk tiap jendela 10 menit, menyimpannya
+ke tabel `diagnoses`, dan mencatat perubahan ke tabel `events`. Aturan diperiksa berurutan, berhenti di "ya" pertama:
+
+| # | Syarat (ambang di `diagnosis.*`) | Hasil |
+|---|---|---|
+| – | Sampel di jendela < `min_samples` (20) | Data kurang |
+| 1 | ≥ `signal_lost_fraction` (50%) sampel tanpa layanan | Sinyal putus |
+| 2 | Median RSRP < `rsrp_weak_dbm` (−110 dBm) | Cakupan lemah |
+| 3 | Median SINR < `sinr_interference_db` (0 dB) | Interferensi |
+| 4 | Median unduh < `congestion_ratio` (50%) × median unduh 24 jam terakhir | Sel padat |
+| 5 | Sel berganti ≥ `handover_changes` (4) kali | Handover bolak-balik |
+| 6 | Selain itu | Normal |
+
+Hal yang perlu diketahui:
+
+- **Jendela di kisi tetap** (xx:00, xx:10, ... UTC) dan sampel dihitung apa adanya. Kalau collector sempat berhenti,
+  jendela yang kosong/berisi sedikit sampel menjadi "Data kurang", bukan diagnosis tebakan. Jendela yang belum selesai
+  belum didiagnosis. Hanya baris `raw_ok=1` yang dihitung.
+- **Setiap aturan bisa "tidak tersedia"**, karena kelengkapan data berbeda antar-HP. Aturan itu dilewati dan alasannya
+  ditulis di kolom `detail` (tampil sebagai CATATAN), misalnya:
+  - `rsrp: tidak tersedia` / `sinr: tidak tersedia`: kurang dari `min_metric_samples` (5) nilai di jendela.
+  - `sinr: tidak tersedia (selalu 0 ...)`: semua SINR di jendela persis 0. Beberapa HP (Infinix SIM 2) menulis
+    `rssnr=0` sebagai nilai kosong, jadi tidak dianggap 0 dB.
+  - `kecepatan: tidak tersedia`: tidak ada uji kecepatan untuk jendela itu (uji di jendela itu, atau uji terakhir
+    dalam `speed_lookback_minutes`), atau pembanding 24 jam kurang dari `min_speed_samples` (6).
+  - `handover: dihitung dari earfcn, cell_id tidak tersedia`: HP menyembunyikan cell id (Xiaomi), jadi pergantian
+    EARFCN dipakai sebagai pendekatan. Kalau EARFCN juga jarang terisi, jumlahnya hanya batas bawah.
+  - `handover: tidak tersedia`: `cell_id` dan `earfcn` kosong.
+- **Event**: perubahan hasil (dibanding hasil konklusif terakhir; "Data kurang" tidak dihitung) dicatat sebagai
+  `diagnosis_changed` (detail `Lama -> Baru; ...`), atau `signal_lost` kalau hasil barunya "Sinyal putus". Event dari
+  jendela yang sudah lebih dari 30 menit lalu langsung ditandai `notified=1` supaya bot tidak mengirim alert basi.
+- **`--rerun`** menghapus semua baris `diagnoses` dan event `diagnosis_changed`/`signal_lost` (untuk `--kos` tertentu
+  atau semua), lalu menghitung ulang. Event `collector_error` tidak dihapus. Baris diagnosis baru ber-`uploaded=0`,
+  jadi akan dikirim lagi ke Google Sheets (baris lama di sheet tidak terhapus otomatis).
+- **Rekomendasi operator**: kalau satu kos punya dua operator, dipilih yang porsi jendela Normal-nya tertinggi; kalau
+  sama, yang median RSRP-nya lebih tinggi.
 
 ## TODO
 

@@ -6,6 +6,10 @@ kos: kos-a
 database: data/ceksinyal.db
 raw_dir: data/raw
 
+# Zona waktu untuk tampilan, laporan, dan ringkasan harian (7 = WIB, 8 = WITA, 9 = WIT).
+# Data di database selalu UTC.
+timezone_offset_hours: 7
+
 # Path ke adb. Cukup "adb" kalau platform-tools sudah ada di PATH.
 adb_path: adb
 
@@ -14,6 +18,20 @@ collector:
   max_devices: 2              # satu laptop membaca 1-2 HP
   adb_timeout_seconds: 15     # batas waktu satu perintah adb
   raw_dump_interval_minutes: 60  # maksimal satu file output mentah per HP per periode ini
+
+# Ambang diagnosis (jendela 10 menit per operator). Setelah mengubah, hitung ulang data lama dengan:
+#   python -m ceksinyal diagnose --rerun
+diagnosis:
+  window_minutes: 10
+  min_samples: 20              # jendela dengan sampel lebih sedikit -> "Data kurang"
+  signal_lost_fraction: 0.5    # porsi sampel tanpa layanan -> "Sinyal putus"
+  rsrp_weak_dbm: -110          # median RSRP di bawah ini -> "Cakupan lemah"
+  sinr_interference_db: 0      # median SINR di bawah ini -> "Interferensi"
+  congestion_ratio: 0.5        # median unduh < rasio x median 24 jam -> "Sel padat"
+  min_speed_samples: 6         # data kecepatan 24 jam minimal untuk aturan sel padat
+  speed_lookback_minutes: 20   # jendela tanpa uji kecepatan memakai uji terakhir dalam rentang ini
+  handover_changes: 4          # pergantian sel dalam satu jendela -> "Handover bolak-balik"
+  min_metric_samples: 5        # nilai RSRP/SINR minimal supaya median dianggap tersedia
 
 # HP yang dibaca. Serial dilihat dengan: python -m ceksinyal devices
 # Kalau daftar ini kosong, collector memakai HP apa saja yang terhubung (maks. max_devices)

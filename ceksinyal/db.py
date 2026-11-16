@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS diagnoses (
     cell_changes INTEGER,
     result TEXT,
     advice TEXT,
+    detail TEXT,
     uploaded INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_diagnoses_operator_ts ON diagnoses (operator, ts);
@@ -86,11 +87,13 @@ MEASUREMENT_COLUMNS = (
 ADDED_COLUMNS = (
     ("measurements", "sinr_raw", "INTEGER"),  # rssnr/sinr mentah dari dumpsys
     ("measurements", "sinr_unit", "TEXT"),  # satuan sinr_raw: 'db' atau 'deci_db' (0,1 dB)
+    ("diagnoses", "detail", "TEXT"),  # catatan aturan, mis. "handover: tidak tersedia"
 )
 
 EVENT_SIGNAL_LOST = "signal_lost"
 EVENT_DIAGNOSIS_CHANGED = "diagnosis_changed"
 EVENT_COLLECTOR_ERROR = "collector_error"
+EVENT_DAILY_SUMMARY = "daily_summary"  # penanda ringkasan harian sudah dikirim (detail = tanggal lokal)
 
 
 def utc_now() -> datetime:
