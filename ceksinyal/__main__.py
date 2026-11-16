@@ -8,7 +8,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from . import __version__, db, fix_sinr
+from . import __version__, db, fix_band, fix_sinr
 from .collector.adb import Adb, AdbError
 from .collector.parser import SignalReading, parse_registry
 from .collector.service import OPERATOR_PROP, Collector, RawStore, probe
@@ -182,6 +182,28 @@ def cmd_fix_sinr(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fix_band(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    path = Path(args.db) if args.db else cfg.database
+    try:
+        result = fix_band.fix_band(path, dry_run=args.dry_run)
+    except (OSError, sqlite3.Error) as exc:
+        log.error("fix-band gagal: %s", exc)
+        return 1
+    print(f"Database: {path}")
+    print(f"{result.checked} baris LTE dengan EARFCN diperiksa, {result.corrected} band tidak cocok dengan EARFCN.")
+    if result.pairs:
+        rows = [
+            [_fmt(old), str(new), str(count)]
+            for (old, new), count in sorted(result.pairs.items(), key=lambda kv: (-kv[1], str(kv[0])))
+        ]
+        _print_table(["BAND LAMA", "BAND BARU", "BARIS"], rows)
+    if args.dry_run:
+        print("--dry-run: tidak ada yang ditulis.")
+    elif result.written:
+        print(f"Selesai. Backup: {result.backup}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", default=argparse.SUPPRESS, help="path config.yaml")
@@ -215,6 +237,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--serial", help="hanya baris dari HP dengan serial ini")
     p.add_argument("--dry-run", action="store_true", help="tampilkan ringkasan saja, tanpa menulis")
     p.set_defaults(func=cmd_fix_sinr)
+
+    p = sub.add_parser("fix-band", parents=[common],
+                       help="koreksi band LTE lama yang tidak cocok dengan EARFCN")
+    p.add_argument("--db", help="path database (bawaan: database di config)")
+    p.add_argument("--dry-run", action="store_true", help="tampilkan ringkasan saja, tanpa menulis")
+    p.set_defaults(func=cmd_fix_band)
     return parser
 
 

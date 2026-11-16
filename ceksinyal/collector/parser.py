@@ -47,8 +47,10 @@ EARFCN = (0, 262_143)
 NRARFCN = (0, 3_279_165)
 BAND = (1, 1024)
 
-# Band LTE berdasarkan EARFCN downlink (band yang umum dipakai), untuk HP yang tidak
-# menampilkan mBands (Android 10 ke bawah).
+# Band LTE berdasarkan EARFCN downlink (3GPP TS 36.101 Tabel 5.7.3-1, N_Offs-DL sampai batas atas
+# rentang N_DL), untuk band yang umum dipakai. Indonesia: 1 (2100), 3 (1800), 5 (850), 8 (900),
+# 40 (2300 TDD). Dipakai untuk HP yang tidak menampilkan mBands dan untuk mengoreksi mBands yang
+# tidak cocok dengan EARFCN.
 LTE_BANDS = (
     (1, 0, 599), (2, 600, 1199), (3, 1200, 1949), (4, 1950, 2399), (5, 2400, 2649),
     (7, 2750, 3449), (8, 3450, 3799), (20, 6150, 6449), (28, 9210, 9659),
@@ -280,42 +282,104 @@ def _registered_infos(section: str, kind: str) -> list[str]:
     return blocks
 
 
-def _identity_blocks(section: str, kind: str) -> list[str]:
-    """Blok CellIdentity<kind> milik sel yang melayani, urut dari sumber paling tepercaya."""
+# Urutan kepercayaan sumber identitas sel (kecil = lebih dipercaya). CellInfo paling akhir karena
+# bisa basi: di Infinix Android 14 CellInfo "registered" menunjuk sel lain (EARFCN 500) padahal
+# mServiceState dan mSignalStrength sudah di sel Band 3 / EARFCN 1850.
+SRC_NRI_PS, SRC_NRI_CS, SRC_CELL_IDENTITY, SRC_BARRING, SRC_CELLINFO = range(5)
+
+# kind -> (kunci cell id, rentang, kunci pci, rentang, kunci arfcn, rentang)
+_IDENTITY_KEYS = {
+    "Lte": ("m?ci", CI_LTE, "m?pci", PCI_LTE, "m?earfcn", EARFCN),
+    "Nr": ("m?nci", NCI_NR, "m?pci", PCI_NR, "m?nrArfcn", NRARFCN),
+    "Wcdma": ("m?cid", CID_WCDMA, None, None, None, None),
+    "Gsm": ("m?cid", CID_GSM, None, None, None, None),
+}
+
+
+@dataclass
+class _Ident:
+    source: int = SRC_CELLINFO
+    cell_id: int | None = None
+    pci: int | None = None
+    arfcn: int | None = None
+    band: int | None = None
+
+    @property
+    def score(self) -> int:
+        """Kelengkapan: berapa dari cell id, pci, arfcn yang valid."""
+        return sum(v is not None for v in (self.cell_id, self.pci, self.arfcn))
+
+
+def _identity_blocks(section: str, kind: str) -> list[tuple[int, str]]:
+    """Semua blok CellIdentity<kind> milik sel yang melayani, sebagai (sumber, isi blok)."""
     ident = rf"CellIdentity{kind}\s*:?\s*\{{"
-    blocks: list[str] = []
+    blocks: list[tuple[int, str]] = []
+    for m in re.finditer(r"NetworkRegistrationInfo\s*\{", section):
+        nri = _brace_block(section, m.end() - 1)
+        im = re.search(rf"cellIdentity\s*=\s*{ident}", nri)
+        if im:
+            source = SRC_NRI_PS if re.search(r"domain\s*=\s*PS", nri) else SRC_NRI_CS
+            blocks.append((source, _brace_block(nri, im.end() - 1)))
+    # mBarringInfo juga berisi "mCellIdentity=": dibedakan dari mCellIdentity tingkat atas lewat posisinya.
+    barring = [
+        (m.start(), m.end() + len(_brace_block(section, m.end() - 1)))
+        for m in re.finditer(r"\bmBarringInfo\s*=\s*BarringInfo\s*\{", section)
+    ]
     for m in re.finditer(rf"\bmCellIdentity\s*=\s*{ident}", section):
-        blocks.append(_brace_block(section, m.end() - 1))
+        in_barring = any(lo <= m.start() <= hi for lo, hi in barring)
+        blocks.append((SRC_BARRING if in_barring else SRC_CELL_IDENTITY, _brace_block(section, m.end() - 1)))
     for info in _registered_infos(section, kind):
         m = re.search(ident, info)
         if m:
-            blocks.append(_brace_block(info, m.end() - 1))
-    nris = [
-        _brace_block(section, m.end() - 1)
-        for m in re.finditer(r"NetworkRegistrationInfo\s*\{", section)
-    ]
-    nris.sort(key=lambda b: 0 if re.search(r"domain\s*=\s*PS", b) else 1)
-    for nri in nris:
-        m = re.search(rf"cellIdentity\s*=\s*{ident}", nri)
-        if m:
-            blocks.append(_brace_block(nri, m.end() - 1))
+            blocks.append((SRC_CELLINFO, _brace_block(info, m.end() - 1)))
     return blocks
 
 
-def _first_valid(blocks: list[str], key: str, rng: tuple[float, float]) -> int | None:
-    for block in blocks:
-        v = _valid(_int(key, block), rng)
-        if v is not None:
-            return int(v)
+def _block_band(block: str) -> int | None:
+    m = re.search(r"\bm?Bands\s*[=:]\s*\[\s*(\d+)", block, re.IGNORECASE)
+    if m and _valid(int(m.group(1)), BAND) is not None:
+        return int(m.group(1))
     return None
 
 
-def _first_band(blocks: list[str]) -> int | None:
-    for block in blocks:
-        m = re.search(r"\bm?Bands\s*[=:]\s*\[\s*(\d+)", block, re.IGNORECASE)
-        if m and _valid(int(m.group(1)), BAND) is not None:
-            return int(m.group(1))
-    return None
+def _valid_int(key: str | None, rng: tuple[float, float] | None, block: str) -> int | None:
+    if key is None or rng is None:
+        return None
+    value = _valid(_int(key, block), rng)
+    return int(value) if value is not None else None
+
+
+def _pick_identity(section: str, kind: str) -> _Ident:
+    """Identitas sel dari SATU blok: skor kelengkapan tertinggi, seri -> urutan sumber.
+
+    Kolom tidak dicampur antar-blok: HP bisa menulis sel yang berbeda di blok yang berbeda (CellInfo
+    basi) atau nilai salah di blok yang sebagian disembunyikan (Infinix: mCellIdentity mBands=[1]
+    padahal selnya Band 3). Kolom yang kosong di blok terpilih hanya diisi dari blok lain yang
+    cell id-nya sama persis.
+    """
+    ci_key, ci_rng, pci_key, pci_rng, arfcn_key, arfcn_rng = _IDENTITY_KEYS[kind]
+    cands = [
+        _Ident(
+            source=source,
+            cell_id=_valid_int(ci_key, ci_rng, block),
+            pci=_valid_int(pci_key, pci_rng, block),
+            arfcn=_valid_int(arfcn_key, arfcn_rng, block),
+            band=_block_band(block),
+        )
+        for source, block in _identity_blocks(section, kind)
+    ]
+    if not cands:
+        return _Ident()
+    cands.sort(key=lambda c: c.source)  # stabil: urutan kemunculan dipertahankan dalam satu sumber
+    best = min(cands, key=lambda c: (-c.score, c.source))
+    if best.cell_id is not None:
+        for other in cands:
+            if other is best or other.cell_id != best.cell_id:
+                continue
+            for name in ("pci", "arfcn", "band"):
+                if getattr(best, name) is None:
+                    setattr(best, name, getattr(other, name))
+    return best
 
 
 def lte_band_from_earfcn(earfcn: int | None) -> int | None:
@@ -346,24 +410,15 @@ def _service_state_earfcn(section: str) -> int | None:
 
 def _identity(section: str, rat: str) -> dict[str, int | None]:
     if rat == "LTE":
-        blocks = _identity_blocks(section, "Lte")
-        earfcn = _first(_first_valid(blocks, "m?earfcn", EARFCN), _service_state_earfcn(section))
-        return {
-            "pci": _first_valid(blocks, "m?pci", PCI_LTE),
-            "cell_id": _first_valid(blocks, "m?ci", CI_LTE),
-            "earfcn": earfcn,
-            "band": _first(_first_band(blocks), lte_band_from_earfcn(earfcn)),
-        }
+        best = _pick_identity(section, "Lte")
+        earfcn = _first(best.arfcn, _service_state_earfcn(section))
+        # EARFCN menentukan band secara pasti; mBands hanya dipakai kalau EARFCN tidak ada/tidak dikenal.
+        band = _first(lte_band_from_earfcn(earfcn), best.band)
+        return {"pci": best.pci, "cell_id": best.cell_id, "earfcn": earfcn, "band": band}
     if rat == "NR":
-        blocks = _identity_blocks(section, "Nr")
-        return {
-            "pci": _first_valid(blocks, "m?pci", PCI_NR),
-            "cell_id": _first_valid(blocks, "m?nci", NCI_NR),
-            "earfcn": _first_valid(blocks, "m?nrArfcn", NRARFCN),
-            "band": _first_band(blocks),
-        }
-    kind, rng = ("Wcdma", CID_WCDMA) if rat == "WCDMA" else ("Gsm", CID_GSM)
-    return {"cell_id": _first_valid(_identity_blocks(section, kind), "m?cid", rng)}
+        best = _pick_identity(section, "Nr")
+        return {"pci": best.pci, "cell_id": best.cell_id, "earfcn": best.arfcn, "band": best.band}
+    return {"cell_id": _pick_identity(section, "Wcdma" if rat == "WCDMA" else "Gsm").cell_id}
 
 
 # ---------------------------------------------------------------- service state

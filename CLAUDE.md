@@ -58,6 +58,8 @@ ceksinyal/
 
 ## Pengumpulan data
 - Perintah utama: `adb -s <serial> shell dumpsys telephony.registry`. Ambil dari bagian `mSignalStrength` (CellSignalStrengthLte: rsrp, rsrq, rssnr/sinr, rssi) dan identitas sel (CellIdentityLte: mCi, mPci, mEarfcn, mBands). Dukung juga NR (5G) kalau ada.
+- Identitas sel (cell_id, pci, earfcn, band) diambil dari SATU blok yang sama, jangan dicampur antar-blok. Pilih blok dengan skor kelengkapan tertinggi (jumlah ci/pci/earfcn valid); seri → NetworkRegistrationInfo PS > NRI CS > mCellIdentity > mBarringInfo > CellInfo registered (CellInfo bisa basi, contoh Infinix Android 14). Kolom kosong hanya boleh diisi dari blok lain dengan cell_id yang sama; cadangan EARFCN dari `mChannelNumber`.
+- Band LTE: kalau EARFCN ada di tabel `LTE_BANDS` (3GPP TS 36.101), band dihitung dari EARFCN; `mBands` hanya dipakai kalau EARFCN kosong/tidak dikenal (Infinix menulis mBands=[1] untuk sel Band 3). Data lama diperbaiki dengan `python -m ceksinyal fix-band`.
 - Nama operator dari config; fallback `adb shell getprop gsm.operator.alpha`.
 - Interval default 10 detik per HP. Kalau HP terputus, catat event dan coba lagi, jangan crash.
 - RSRP tanpa layanan → rat = NONE, nilai sinyal None (ini dihitung sebagai "sinyal hilang").
@@ -97,6 +99,8 @@ Kalau dua operator ada di kos yang sama, buat juga rekomendasi: operator dengan 
 - `python -m ceksinyal diagnose [--rerun]`
 - `python -m ceksinyal report --kos <nama>` — laporan bukti
 - `python -m ceksinyal selftest` — cek ADB, config, koneksi Sheets, bot
+- `python -m ceksinyal fix-sinr [--db <path>] [--serial <serial>] [--dry-run]` — koreksi SINR lama 10x lipat (Android 10)
+- `python -m ceksinyal fix-band [--db <path>] [--dry-run]` — koreksi band LTE lama yang tidak cocok dengan EARFCN
 
 ## Cara kerja yang diharapkan dari Claude Code
 - Kerjakan satu fitur per sesi. Rencanakan dulu, lalu tulis kode, lalu tes.

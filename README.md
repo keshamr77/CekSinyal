@@ -35,6 +35,7 @@ Status: **collector** sudah jalan (`devices`, `probe`, `collect`). Speedtest, di
 | `python -m ceksinyal probe --file <path>` | Parse file output dumpsys tanpa HP (untuk mengecek fixture). |
 | `python -m ceksinyal collect` | Collector: baca 1–2 HP tiap 10 detik dan simpan ke tabel `measurements`. Hentikan dengan Ctrl+C. |
 | `python -m ceksinyal fix-sinr [--db <path>] [--serial <serial>] [--dry-run]` | Koreksi SINR LTE lama yang tercatat 10x lipat (HP Android 10, lihat di bawah). Selalu coba `--dry-run` dulu. |
+| `python -m ceksinyal fix-band [--db <path>] [--dry-run]` | Koreksi band LTE lama yang tidak cocok dengan EARFCN (lihat "Identitas sel"). Selalu coba `--dry-run` dulu. |
 
 Opsi umum: `--config <path>` (bawaan `./config.yaml`, atau variabel `CEKSINYAL_CONFIG`) dan `-v` (log debug).
 Opsi `probe`: `--serial`, `--phone-id`. Opsi `collect`: `--interval <detik>`, `--iterations <n>`.
@@ -66,13 +67,21 @@ Kalau `devices` kosong, collector memakai HP apa saja yang terhubung (maks. `max
 - Tiap putaran: `adb devices -l`, lalu `adb -s <serial> shell dumpsys telephony.registry` untuk tiap HP
   (paralel, jadi HP yang lambat tidak menunda HP lain).
 - Parser (`ceksinyal/collector/parser.py`) mengambil RSRP/RSRQ/SINR/RSSI dari `mSignalStrength` dan
-  PCI/Cell ID/EARFCN/band dari identitas sel yang melayani (`mCellIdentity`, `CellInfo` dengan
-  `mRegistered=YES`, atau `NetworkRegistrationInfo`). Mendukung format Android 9 (kolom posisi,
+  PCI/Cell ID/EARFCN/band dari identitas sel yang melayani (lihat "Identitas sel"). Mendukung format Android 9 (kolom posisi,
   SINR dalam 0,1 dB) sampai 14, LTE, NR SA, dan NR NSA. Nilai yang tidak ada, `2147483647`,
   disamarkan (`*****`), atau di luar rentang fisik menjadi kosong (NULL).
 - **RAT**: tidak dalam layanan → `NONE` dengan nilai sinyal kosong (dihitung "sinyal hilang").
   NR NSA (5G non-standalone) disimpan sebagai `LTE` dengan nilai anchor LTE; nilai NR hanya tampil di `probe`.
-  Band LTE dihitung dari EARFCN kalau HP tidak menampilkan `mBands`.
+- **Identitas sel**: `pci`, `cell_id`, `earfcn`, dan `band` selalu diambil dari **satu blok** yang sama, tidak
+  dicampur. Kandidat bloknya: `NetworkRegistrationInfo` (PS lalu CS) di `mServiceState`, `mCellIdentity`,
+  `mBarringInfo`, dan `CellInfo` dengan `mRegistered=YES`. Dipilih blok yang paling lengkap (jumlah cell id, PCI,
+  EARFCN yang valid); kalau seri, urutan sumber di atas yang menentukan. `CellInfo` paling akhir karena bisa basi
+  (Infinix Android 14: CellInfo menunjuk sel lain padahal HP sudah pindah). Kolom yang kosong hanya diisi dari
+  blok lain yang cell id-nya sama.
+- **Band LTE** dihitung dari EARFCN (tabel 3GPP TS 36.101) setiap kali EARFCN dikenal; `mBands` dari HP hanya
+  dipakai kalau EARFCN kosong atau di luar tabel. Alasannya: Infinix menulis `mBands=[1]` untuk sel EARFCN 1850
+  (Band 3). Data lama yang terlanjur salah diperbaiki dengan `fix-band`: untuk baris LTE yang punya EARFCN, band
+  diganti dengan hasil hitung dari EARFCN. Database di-backup dulu ke `<nama>.backup-<waktu>.db`.
 - **Identitas sel disembunyikan**: beberapa HP (contohnya Xiaomi MIUI, mis. Redmi 9C Android 10) tidak
   memberikan identitas sel lewat ADB, bahkan saat Lokasi menyala: `CellIdentityLte` hanya berisi
   bandwidth/MCC/MNC/nama operator dan `mCellLocation` berisi `cid=-1`. Akibatnya `pci` dan `cell_id`
@@ -106,6 +115,8 @@ Kalau `devices` kosong, collector memakai HP apa saja yang terhubung (maks. `max
 
 ## TODO
 
+- Infinix Android 14 dual-SIM: SIM 2 (Tri) menunjukkan `rssnr=0` di `mSignalStrength` dan di semua CellInfo.
+  Kemungkinan itu nilai kosong, bukan 0 dB sungguhan. Perlu dicek kalau SIM 2 ikut dipantau.
 - Xiaomi Android 10 (Redmi 9C): `pci` dan `cell_id` kosong di semua sampel, dan `earfcn`/`band` hanya terisi
   ±21% sampel. Perlu dicari sumber lain (mis. `dumpsys phone`,
   `mCellInfo` pada versi MIUI lain) sebelum aturan handover bisa diandalkan di HP ini.
@@ -116,8 +127,9 @@ Kalau `devices` kosong, collector memakai HP apa saja yang terhubung (maks. `max
 python -m pytest
 ```
 
-Fixture ada di `tests/fixtures/`. Sebagian besar sintetis (`synthetic_*.txt`); fixture asli pertama adalah
-`real_redmi9c_android10.txt` (Xiaomi Redmi 9C, MIUI, Android 10, MediaTek, Telkomsel). Untuk menambah fixture asli:
+Fixture ada di `tests/fixtures/`. Sebagian besar sintetis (`synthetic_*.txt`); fixture asli:
+`real_redmi9c_android10.txt` (Xiaomi Redmi 9C, MIUI, Android 10, MediaTek, Telkomsel) dan
+`real_infinix_android14_dualsim.txt` (Infinix, Android 14, SIM 1 Telkomsel, SIM 2 Tri, slot ke-3 mati). Untuk menambah fixture asli:
 
 1. Jalankan `python -m ceksinyal probe` dengan HP tersambung, lalu ambil file `data/raw/probe_*.txt`.
 2. Salin ke `tests/fixtures/real_<merek>_<android>_<operator>.txt`. Hapus dulu data pribadi
