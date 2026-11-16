@@ -62,6 +62,24 @@ telegram:
   daily_summary_time: "21:00"  # waktu lokal ringkasan harian; "" = tanpa ringkasan
   weak_rsrp_dbm: -100          # ambang "RSRP lemah" di ringkasan harian
 
+# Dashboard web (python -m ceksinyal dashboard). Di Streamlit Community Cloud pengaturan ini diisi lewat Secrets
+# (lihat .streamlit/secrets.toml.example), karena config.yaml tidak ikut ke repo.
+dashboard:
+  mode: auto                   # auto = sheets kalau Sheets dikonfigurasi, selain itu sqlite; atau sqlite / sheets
+  public: true                 # true = nama kos SELALU diganti alias (pakai false hanya di laptop sendiri)
+  kos_aliases:                 # nama kos asli -> alias; yang tidak terdaftar menjadi "Kos 1", "Kos 2", ...
+    kos-a: Kos A
+  stale_minutes: 15            # peringatan "alat ukur diam" kalau tidak ada data selama ini
+  cache_ttl_seconds: 300       # jeda baca ulang sumber data (hemat kuota baca Sheets)
+  # Batas kategori "Baik". Batas "Buruk" RSRP dan SINR memakai ambang diagnosis di atas
+  # (diagnosis.rsrp_weak_dbm dan diagnosis.sinr_interference_db), supaya dashboard dan diagnosis konsisten.
+  rsrp_good_dbm: -100
+  rsrq_good_db: -10
+  rsrq_poor_db: -15
+  sinr_good_db: 10
+  download_good_mbps: 10
+  download_poor_mbps: 2
+
 # HP yang dibaca. Serial dilihat dengan: python -m ceksinyal devices
 # Kalau daftar ini kosong, collector memakai HP apa saja yang terhubung (maks. max_devices)
 # dan nama operator diambil dari getprop gsm.operator.alpha.

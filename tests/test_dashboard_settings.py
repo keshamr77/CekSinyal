@@ -189,3 +189,38 @@ def test_app_renders_in_sheets_mode(fake_gspread, clean, monkeypatch):
     at.run()  # muat kedua dalam TTL: dari cache, tanpa membaca Sheets lagi
     assert len(fake_gspread["reads"]) == 3
     st.cache_data.clear()
+
+
+# ------------------------------------------------------------ berkas deploy
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_secrets_example_is_valid_and_only_placeholders():
+    tomllib = pytest.importorskip("tomllib")  # Python 3.11+
+    text = (ROOT / ".streamlit" / "secrets.toml.example").read_text(encoding="utf-8")
+    example = tomllib.loads(text)
+    assert example["gcp_service_account"]["private_key"].count("ISI_KUNCI_PRIVAT") == 1
+    assert example["dashboard"]["spreadsheet_id"] == "ID_SPREADSHEET_ANDA"
+    s = settings.resolve(example, {})  # contoh bisa langsung dipakai sebagai kerangka
+    assert s.mode == "sheets" and s.aliases == {"nama-kos-asli-1": "Kos A", "nama-kos-asli-2": "Kos B"}
+
+
+def test_real_secrets_file_is_gitignored_and_entry_point_exists():
+    ignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert ".streamlit/secrets.toml" in ignore
+    assert (ROOT / "dashboard" / "streamlit_app.py").is_file()
+    requirements = (ROOT / "dashboard" / "requirements.txt").read_text(encoding="utf-8")
+    for package in ("streamlit", "pandas", "altair", "gspread", "PyYAML"):
+        assert package in requirements
+    core = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    assert "streamlit" not in core and "pandas" not in core  # collector tidak butuh dependensi dashboard
+
+
+def test_core_modules_do_not_import_dashboard_dependencies():
+    import subprocess
+
+    code = ("import sys; import ceksinyal.__main__, ceksinyal.runner, ceksinyal.selftest; "
+            "bad = [m for m in ('pandas', 'streamlit', 'altair') if m in sys.modules]; print(bad); sys.exit(bool(bad))")
+    proc = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout + proc.stderr

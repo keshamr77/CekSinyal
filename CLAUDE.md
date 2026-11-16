@@ -25,6 +25,8 @@ HP Android ──USB (ADB)──> collector ──> SQLite <── speedtest (le
                  uploader            bot Telegram        report
            (Google Sheets, store-    (alert + ringkasan   (laporan bukti
             and-forward)              harian)              per kos)
+                     │
+              dashboard web (Streamlit; membaca Sheets, atau SQLite untuk demo)
 ```
 
 ## Struktur folder
@@ -49,7 +51,10 @@ ceksinyal/
 │   ├── diagnosis/         # rules.py (pohon keputusan), engine.py (jendela 10 menit, event, rekomendasi)
 │   ├── uploader/          # sheets.py, kirim baris yang uploaded=0
 │   ├── bot/               # telegram.py (sendMessage via requests, alert, ringkasan harian)
-│   └── report/            # data.py (statistik), render.py (Markdown/HTML + SVG)
+│   ├── report/            # data.py (statistik), render.py (Markdown/HTML + SVG)
+│   └── dashboard/         # data.py (lapisan data, pandas saja), settings.py, charts.py (Altair), app.py (halaman Streamlit)
+├── dashboard/             # streamlit_app.py (titik masuk lokal + Streamlit Cloud), requirements.txt (dependensi opsional)
+├── .streamlit/            # secrets.toml.example (placeholder); secrets.toml asli di-.gitignore
 ├── tests/
 │   └── fixtures/          # contoh output dumpsys asli dari HP anggota
 └── docs/                  # screenshot, catatan uji, lembar validasi
@@ -90,8 +95,16 @@ Kalau dua operator ada di kos yang sama, buat juga rekomendasi: operator dengan 
 ## Dashboard dan store-and-forward
 - Backend utama: Google Sheets (service account, library `gspread`). Satu spreadsheet bersama, tab `measurements`, `speedtests`, `diagnoses`. Setiap baris membawa kolom `kos`.
 - Uploader mengirim baris `uploaded=0` per batch, lalu menandai `uploaded=1` hanya setelah berhasil. Internet putus tidak boleh menghilangkan data.
+- Tab `events` juga dikirim (signal_lost, diagnosis_changed, collector_error; bukan daily_summary) lewat kolom `events.uploaded`, karena dashboard web membutuhkannya.
 - Untuk measurements, boleh kirim versi rata-rata per menit supaya tidak melebihi kuota API (bawaan: `sheets.aggregate_measurements: true`, per menit per HP; menit yang masih berjalan belum dikirim).
 - Spreadsheet ID dari `sheets.spreadsheet_id` (config) atau `GOOGLE_SPREADSHEET_ID` (.env); file kredensial dari `GOOGLE_CREDENTIALS_FILE` (.env). `python -m ceksinyal upload` mengirim sekali sekarang.
+
+## Dashboard web (Streamlit)
+- Melengkapi Sheets, bukan menggantikannya. Lapisan data (`ceksinyal/dashboard/data.py`) terpisah dari tampilan dan tidak mengimpor streamlit; mode `sheets` dan `sqlite` menghasilkan DataFrame berskema sama, dengan measurements SELALU per menit per HP (SQLite diagregasi dengan `uploader.sheets.aggregate_minutes`).
+- Ambang kategori Baik/Cukup/Buruk: batas buruk RSRP dan SINR diambil dari `diagnosis.*`; batas lain di `dashboard.*`. Jangan hardcode ambang di tampilan.
+- Privasi: mode publik bawaan (nama kos → alias, tanpa alias → "Kos N"); device_serial TIDAK PERNAH ditampilkan ("HP N"); rincian collector_error dan IP lokal disamarkan. Pemetaan alias hanya di config.yaml/secrets.
+- Dependensi dashboard opsional (`dashboard/requirements.txt`); modul inti tidak boleh mengimpor pandas/streamlit. Tes dashboard memakai `pytest.importorskip`.
+- Semua label bahasa Indonesia, waktu tampil WIB, kategori selalu ikon + teks (bukan warna saja), harus nyaman di layar HP.
 
 ## Bot Telegram
 - Pakai HTTP API langsung (`requests` ke sendMessage). Token dan chat ID dari `.env`.
@@ -110,6 +123,7 @@ Kalau dua operator ada di kos yang sama, buat juga rekomendasi: operator dengan 
 - `python -m ceksinyal report --kos <nama> [--db <path>] [--out <folder>] [--since <tgl>] [--until <tgl>]` — laporan bukti (Markdown + HTML satu file dengan grafik SVG inline, tanpa pustaka grafik) di `data/reports/`; wajib memuat catatan keterbatasan data per HP
 - `python -m ceksinyal selftest [--send-test]` — cek config, kos sudah diisi, database, ADB/HP (termasuk parsing), IP tethering, koneksi Sheets, bot. GAGAL = kode keluar 1; bagian opsional yang tidak dikonfigurasi = LEWATI
 - `python -m ceksinyal upload` / `summary [--send]` / `speedtest [--full]` — menjalankan satu bagian sekali (untuk uji manual)
+- `python -m ceksinyal dashboard [--db <path>] [--mode sqlite|sheets] [--no-public] [--port <n>]` — dashboard web lokal (menjalankan streamlit)
 - `python -m ceksinyal fix-sinr [--db <path>] [--serial <serial>] [--dry-run]` — koreksi SINR lama 10x lipat (Android 10)
 - `python -m ceksinyal fix-band [--db <path>] [--dry-run]` — koreksi band LTE lama yang tidak cocok dengan EARFCN
 

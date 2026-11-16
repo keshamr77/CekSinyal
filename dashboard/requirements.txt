@@ -1,0 +1,8 @@
+# Dependensi dashboard web (opsional). Laptop yang hanya menjalankan collector tidak perlu memasang ini.
+#   pip install -r dashboard/requirements.txt
+# Streamlit Community Cloud memakai file ini karena berada di folder yang sama dengan streamlit_app.py.
+streamlit>=1.40      # sudah membawa pandas dan altair (grafik), jadi tidak ada pustaka grafik tambahan
+pandas>=2.0
+altair>=5.0
+PyYAML>=6.0          # ceksinyal.config
+gspread>=6.0         # mode sheets

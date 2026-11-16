@@ -145,6 +145,7 @@ Kode keluar 0 kalau tidak ada yang GAGAL.
 | `python -m ceksinyal report --kos <nama> [--db <path>] [--out <folder>] [--since <tgl>] [--until <tgl>]` | Laporan bukti satu kos: file Markdown dan HTML di `data/reports/`. |
 | `python -m ceksinyal upload` | Kirim sekarang semua baris yang belum ter-upload ke Google Sheets. |
 | `python -m ceksinyal summary [--send] [--hours <n>] [--db <path>]` | Tampilkan ringkasan hari ini (isi yang sama dengan ringkasan harian bot); `--send` mengirimnya ke Telegram. |
+| `python -m ceksinyal dashboard [--db <path>] [--mode sqlite\|sheets] [--no-public] [--port <n>]` | Dashboard web (Streamlit) di laptop ini. Butuh `pip install -r dashboard/requirements.txt`. |
 | `python -m ceksinyal fix-sinr [--db <path>] [--serial <serial>] [--dry-run]` | Koreksi SINR LTE lama yang tercatat 10x lipat (HP Android 10, lihat di bawah). Selalu coba `--dry-run` dulu. |
 | `python -m ceksinyal fix-band [--db <path>] [--dry-run]` | Koreksi band LTE lama yang tidak cocok dengan EARFCN (lihat "Identitas sel"). Selalu coba `--dry-run` dulu. |
 
@@ -176,6 +177,7 @@ Kode keluar `probe`: 0 = semua berhasil, 1 = HP/ADB bermasalah, 2 = ada yang par
 | `speedtest.*` | lihat "Uji kecepatan" | Jadwal dan target uji kecepatan. |
 | `sheets.*` | lihat "Dashboard Google Sheets" | Spreadsheet bersama dan cara upload. |
 | `telegram.*` | lihat "Bot Telegram" | Batas frekuensi alert dan jam ringkasan harian. |
+| `dashboard.*` | lihat "Dashboard web" | Sumber data, mode publik, alias kos, batas kategori Baik/Cukup/Buruk. |
 | `devices[].sinr_unit` | `auto` | Satuan rssnr LTE di dumpsys HP ini: `auto` (dari versi Android), `db`, atau `deci_db` (0,1 dB). Lihat "Satuan SINR LTE". |
 
 Kalau `devices` kosong, collector memakai HP apa saja yang terhubung (maks. `max_devices`).
@@ -325,7 +327,10 @@ Cara kerja (store-and-forward):
   **hanya setelah** Sheets menerima batch itu. Internet putus → baris tetap `0` dan dikirim di putaran berikutnya;
   tidak ada data yang hilang. Jaminannya "minimal sekali": pada kasus langka (koneksi putus tepat setelah Sheets
   menerima), satu batch bisa muncul dua kali di sheet.
-- Tab dibuat otomatis berikut baris judulnya: `measurements`, `speedtests`, `diagnoses`.
+- Tab dibuat otomatis berikut baris judulnya: `measurements`, `speedtests`, `diagnoses`, `events`.
+- `events` berisi kejadian `signal_lost`, `diagnosis_changed`, dan `collector_error` (dipakai dashboard web). Penanda
+  internal `daily_summary` tidak dikirim. DB lama otomatis mendapat kolom `events.uploaded`; kejadian lama ikut terkirim
+  pada upload berikutnya.
 - `measurements` dikirim sebagai **rata-rata per menit per HP** supaya hemat kuota API: `ts_minute` (UTC), `kos`,
   `device_serial`, `operator`, `n_samples`, `n_no_service`, `n_parse_failed`, `rat` (terbanyak), `rsrp_avg`, `rsrp_min`,
   `rsrq_avg`, `sinr_avg`, lalu `pci`/`cell_id`/`earfcn`/`band` terakhir di menit itu. Menit yang sedang berjalan baru
@@ -361,6 +366,105 @@ Yang dikirim bot (saat `run` berjalan):
   lebih dari 2 jam tidak dikirim lagi. Ringkasan harian dicoba ulang sampai berhasil pada hari itu, dan ditandai di
   tabel `events` (tipe `daily_summary`) supaya tidak terkirim dua kali walau program di-restart.
 - Diagnosis yang dihitung dari data lama (`diagnose --rerun`, atau jendela berumur > 30 menit) tidak memicu alert.
+
+## Dashboard web
+
+Dashboard web melengkapi spreadsheet bersama: Google Sheets tetap tempat data semua laptop berkumpul, dan dashboard
+menampilkannya secara visual untuk dosen, tim, dan warga kos (termasuk yang bukan orang teknik). Setiap angka punya
+kategori **Baik / Cukup / Buruk** dan penjelasan singkat.
+
+| Tab | Isi |
+|---|---|
+| Ringkasan | Kartu per kos × operator: diagnosis terakhir + saran, median RSRP/RSRQ/SINR 24 jam dengan kategori, kecepatan unduh terakhir, "terakhir terlihat" (peringatan kalau alat ukur diam > 15 menit). |
+| Linimasa | RSRP, RSRQ, SINR terhadap waktu per operator; latar berwarna = periode diagnosis bermasalah (plus tabelnya). |
+| Perbandingan | Rekomendasi operator per kos (aturan sama dengan diagnosis), persentase waktu Baik/Cukup/Buruk per kos × operator, tabel perbandingan. |
+| Kecepatan | Unduh, unggah, ping terhadap waktu; daftar uji yang gagal. |
+| Kejadian | Sinyal putus dan perubahan diagnosis; gangguan alat ukur dipisah. |
+| Kualitas data | Per HP: kolom apa yang tersedia (mis. Xiaomi tanpa PCI/identitas sel), jeda data, catatan keterbatasan. |
+| Cara membaca | Arti RSRP/RSRQ/SINR dan tiap diagnosis dalam bahasa awam, dengan ambang yang sedang dipakai. |
+
+Filter kos, operator, dan rentang waktu ada di panel samping (di HP: tombol `>>` kiri atas). Semua waktu ditampilkan
+dalam WIB (`timezone_offset_hours`); data tetap UTC.
+
+### Menjalankan dashboard (lokal)
+
+```
+pip install -r dashboard/requirements.txt        # sekali; tidak diperlukan di laptop yang hanya merekam
+python -m ceksinyal dashboard --db data/ceksinyal.db      # mode sqlite: baca file DB lokal
+python -m ceksinyal dashboard                             # sumber dari config (lihat di bawah)
+```
+
+Browser terbuka di `http://localhost:8501`. Hentikan dengan Ctrl+C. Opsi: `--port <n>`, `--no-browser`,
+`--mode sqlite|sheets`, `--no-public` (tampilkan nama kos asli; hanya untuk di laptop sendiri).
+
+Sumber data ditentukan berurutan: opsi/variabel lingkungan → `.streamlit/secrets.toml` → `config.yaml`.
+
+| Mode | Kapan dipakai | Yang dibutuhkan |
+|---|---|---|
+| `sqlite` | Demo dan pengembangan; data satu laptop | `--db <path>` atau `CEKSINYAL_DASHBOARD_DB`, atau `database` di config. DB dibuka hanya-baca. |
+| `sheets` | Data semua kos dari spreadsheet bersama | `sheets.spreadsheet_id` + `GOOGLE_CREDENTIALS_FILE` di `.env` (sama seperti uploader), atau secrets. |
+
+Variabel lingkungan: `CEKSINYAL_DASHBOARD_DB`, `CEKSINYAL_DASHBOARD_MODE` (`sqlite`/`sheets`),
+`CEKSINYAL_DASHBOARD_PUBLIC` (`1`/`0`). `dashboard.mode: auto` (bawaan) memilih `sheets` kalau spreadsheet dan
+kredensial tersedia, selain itu `sqlite`.
+
+Hal yang perlu diketahui:
+
+- **Satu baris = satu menit per HP.** Sheets sudah berisi rata-rata per menit; data SQLite (per sampel) diagregasi
+  dengan fungsi yang sama dengan uploader, jadi kedua mode menampilkan angka yang sama. Akibatnya median di dashboard
+  adalah median dari rata-rata per menit, yang bisa sedikit berbeda dari median per sampel di `report`
+  (contoh data Xiaomi: SINR 3,9 dB di dashboard, 4,5 dB di laporan).
+- **Kategori** (bisa diubah di `dashboard.*`): Baik kalau ≥ batas baik, Buruk kalau < batas buruk, di antaranya Cukup.
+  Batas buruk RSRP dan SINR **diambil dari ambang diagnosis** (`diagnosis.rsrp_weak_dbm` = −110 dBm,
+  `diagnosis.sinr_interference_db` = 0 dB), jadi "Buruk" di dashboard selalu sejalan dengan "Cakupan lemah" dan
+  "Interferensi". Bawaan batas baik: RSRP −100 dBm, RSRQ −10 dB (buruk < −15), SINR 10 dB, unduh 10 Mbps (buruk < 2).
+- **"24 jam terakhir"** dihitung mundur dari data terbaru yang ada, bukan dari jam sekarang, supaya data lama tetap
+  terbaca. Kalau data terbaru lebih tua dari `dashboard.stale_minutes` (15), kartu menampilkan peringatan "Alat ukur diam".
+- **Cache**: data dimuat ulang paling cepat tiap `dashboard.cache_ttl_seconds` (300 detik) atau lewat tombol "Muat ulang
+  data". Satu kali muat = 4 permintaan baca ke Sheets (satu per tab), jauh di bawah kuota.
+- SINR yang selalu persis 0 dianggap "Tidak ada data" (sama dengan aturan diagnosis).
+- Baris ganda di spreadsheet (akibat `diagnose --rerun` atau batch yang terkirim dua kali) dibuang saat dimuat.
+
+### Privasi
+
+Repo ini publik dan dashboard bisa dibuka lewat link, jadi:
+
+- **Mode publik aktif secara bawaan** (`dashboard.public: true`). Nama kos selalu diganti alias dari
+  `dashboard.kos_aliases` (atau `[kos_aliases]` di secrets). Kos yang belum punya alias otomatis menjadi "Kos 1",
+  "Kos 2", ... menurut urutan abjad nama aslinya. Nomor otomatis bisa bergeser kalau ada kos baru, jadi sebaiknya
+  daftarkan semua kos secara eksplisit.
+- **Serial HP tidak pernah ditampilkan**, juga di mode non-publik; diganti "HP 1", "HP 2", ...
+- Rincian gangguan alat ukur (yang bisa memuat serial dan path file di laptop anggota) diganti kalimat umum, dan alamat
+  IP lokal di pesan error uji kecepatan disamarkan.
+- Pemetaan alias berisi nama kos asli, jadi tempatnya di `config.yaml` atau secrets, **bukan** di file yang di-commit.
+- Spreadsheet bersama tetap berisi nama kos dan serial asli. Bagikan spreadsheet hanya ke tim; dashboard cukup diberi
+  service account khusus baca.
+
+### Deploy ke Streamlit Community Cloud
+
+1. **Service account khusus baca.** Di Google Cloud Console (project yang sama dengan uploader boleh), buat service
+   account baru, mis. `dashboard-baca`, dan unduh kunci JSON-nya. Buka spreadsheet bersama → *Share* → masukkan email
+   service account itu sebagai **Viewer**. (Jangan pakai service account uploader yang berhak menulis.)
+2. **Push repo ke GitHub**, termasuk folder `dashboard/` dan `.streamlit/secrets.toml.example`. Pastikan
+   `.streamlit/secrets.toml`, `.env`, `config.yaml`, dan file JSON kredensial **tidak** ikut (sudah di `.gitignore`).
+3. Buka <https://share.streamlit.io>, masuk dengan akun GitHub, lalu **Create app** → *Deploy a public app from GitHub*.
+   Isi: *Repository* = repo ini, *Branch* = branch yang dipakai, *Main file path* = `dashboard/streamlit_app.py`.
+4. Di **Advanced settings**: pilih Python 3.11 atau 3.12, lalu di kotak **Secrets** tempel isi
+   `.streamlit/secrets.toml.example` yang sudah diisi: `spreadsheet_id`, `[kos_aliases]`, dan `[gcp_service_account]`
+   (salin tiap kolom dari file JSON; `private_key` ditulis satu baris dengan `\n`).
+5. **Deploy.** Dependensi dipasang dari `dashboard/requirements.txt` (file dependensi di folder yang sama dengan file
+   utama). Setelah app hidup, buka dan cek ketujuh tab; nama kos harus sudah berupa alias.
+6. Mengubah secrets atau alias nanti: menu app → **Settings → Secrets**. App otomatis di-deploy ulang tiap ada push
+   ke branch itu.
+
+**Siapa yang boleh membuka app.** App dari repo publik bersifat publik: siapa pun yang punya link bisa membukanya,
+karena itu mode publik (alias) wajib tetap aktif. Kalau ingin membatasi, buka menu app → **Settings → Sharing** dan
+pilih agar hanya orang tertentu yang bisa melihat, lalu undang alamat email mereka; penonton harus login untuk
+membuka. Ketersediaan dan batas fitur ini bergantung pada paket akun (pada paket gratis jumlah app privat terbatas),
+jadi cek di halaman Sharing akun Anda. Membatasi penonton tidak mengubah isi repo yang tetap publik.
+
+Uji secrets di laptop sebelum deploy: salin contoh menjadi `.streamlit/secrets.toml`, isi, lalu jalankan
+`python -m ceksinyal dashboard --mode sheets`.
 
 ## Laporan bukti
 
@@ -399,6 +503,8 @@ tanggal lokal `YYYY-MM-DD`. Waktu di laporan memakai `timezone_offset_hours`.
 | Speedtest selalu `ok=0` "IP sumber ... tidak ada" | USB tethering mati atau IP berubah setelah HP dicabut: `interfaces`, perbarui `source_ip`. |
 | Upload gagal 403/404 | Spreadsheet belum di-*share* ke email service account, atau `spreadsheet_id` salah. |
 | Bot diam | `selftest --send-test`; pastikan bot sudah dimasukkan ke grup dan `TELEGRAM_CHAT_ID` benar (ID grup negatif). |
+| `dashboard`: "DLL load failed ... Application Control policy" (Windows) | Kebijakan Smart App Control memblokir DLL pandas/pyarrow versi terbaru. Pasang versi yang lebih lama, mis. `pip install "pandas==2.2.3" "pyarrow==18.1.0"`. |
+| Dashboard: "Gagal memuat data dari sumber" | Mode sheets: spreadsheet belum di-share ke service account baca, `spreadsheet_id` salah, atau secrets belum lengkap. |
 | Kos tertulis `belum-diatur` di data | Isi `kos` di config. Data lama tetap berlabel lama (bisa diubah manual dengan SQL `UPDATE ... SET kos = ...` di salinan DB). |
 
 ## TODO
