@@ -3,6 +3,7 @@
 config.yaml
 *credentials*.json
 service_account*.json
+.streamlit/secrets.toml
 
 # data
 data/

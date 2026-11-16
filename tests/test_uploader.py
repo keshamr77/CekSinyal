@@ -67,7 +67,7 @@ def test_minute_aggregation(env):
     measure(conn, 30, rat=None, rsrp=None, raw_ok=0)
     measure(conn, 5, serial="HP2", operator="Tri", rsrp=-80)
     measure(conn, 65, rsrp=-70)
-    assert uploader.upload_pending() == {"measurements": 3, "speedtests": 0, "diagnoses": 0}
+    assert uploader.upload_pending() == {"measurements": 3, "speedtests": 0, "diagnoses": 0, "events": 0}
     tab, headers, rows = backend.calls[0]
     assert tab == "measurements" and headers == sheets.MINUTE_HEADERS
     assert rows[0] == ["2026-11-15T08:00:00+00:00", "kos-a", "HP1", "Telkomsel", 3, 1, 1, "LTE",
@@ -106,12 +106,12 @@ def test_failure_keeps_rows_pending_then_forwards(env):
     sent = uploader.upload_pending()  # tidak melempar
     assert sent == {"measurements": -1} and backend.calls == []
     assert flags(conn) == [0] and flags(conn, "speedtests") == [0] and flags(conn, "diagnoses") == [0]
-    assert uploader.pending() == {"measurements": 1, "speedtests": 1, "diagnoses": 1}
+    assert uploader.pending() == {"measurements": 1, "speedtests": 1, "diagnoses": 1, "events": 0}
 
     backend.fail = None  # internet kembali
-    assert uploader.upload_pending() == {"measurements": 1, "speedtests": 1, "diagnoses": 1}
+    assert uploader.upload_pending() == {"measurements": 1, "speedtests": 1, "diagnoses": 1, "events": 0}
     assert flags(conn) == [1] and flags(conn, "speedtests") == [1] and flags(conn, "diagnoses") == [1]
-    assert uploader.pending() == {"measurements": 0, "speedtests": 0, "diagnoses": 0}
+    assert uploader.pending() == {"measurements": 0, "speedtests": 0, "diagnoses": 0, "events": 0}
 
 
 def test_failure_mid_way_marks_only_successful_batches(env):
@@ -151,6 +151,38 @@ def test_speedtest_and_diagnosis_rows(env):
     row = backend.rows("diagnoses")[0]
     assert len(row) == len(sheets.DIAGNOSIS_HEADERS) and row[11] == "Normal" and row[13] == ""
     assert all(v is not None for v in row)
+
+
+def test_events_tab_skips_internal_markers(env):
+    cfg, conn, backend, uploader, clock = env
+    db.insert_event(conn, db.iso(T0), "kos-a", "Telkomsel", db.EVENT_SIGNAL_LOST, "Normal -> Sinyal putus; x")
+    db.insert_event(conn, db.iso(T0), "kos-a", None, db.EVENT_DAILY_SUMMARY, "2026-11-15", notified=1)
+    db.insert_event(conn, db.iso(T0), "kos-a", "Telkomsel", db.EVENT_DIAGNOSIS_CHANGED, "Normal -> Interferensi; y")
+    db.insert_event(conn, db.iso(T0), "kos-a", None, db.EVENT_COLLECTOR_ERROR, "adb hilang")
+    assert uploader.pending()["events"] == 3
+    assert uploader.upload_pending()["events"] == 3
+    tab, headers, rows = backend.calls[0]
+    assert tab == "events" and headers == sheets.EVENT_HEADERS
+    assert [r[4] for r in rows] == ["signal_lost", "diagnosis_changed", "collector_error"]
+    assert rows[0] == [1, "2026-11-15T08:00:00+00:00", "kos-a", "Telkomsel", "signal_lost", "Normal -> Sinyal putus; x"]
+    assert rows[2][3] == ""  # operator kosong tidak menjadi None
+    assert flags(conn, "events") == [1, 0, 1, 1]  # penanda ringkasan harian tidak dikirim
+    assert uploader.upload_pending()["events"] == 0
+
+
+def test_old_events_table_gets_uploaded_column(tmp_path):
+    import sqlite3
+    path = tmp_path / "lama.db"
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, kos TEXT NOT NULL, "
+                "operator TEXT, type TEXT NOT NULL, detail TEXT, notified INTEGER NOT NULL DEFAULT 0)")
+    old.execute("INSERT INTO events (ts, kos, type, detail, notified) VALUES ('t', 'k', 'signal_lost', 'd', 1)")
+    old.commit()
+    old.close()
+    conn = db.connect(path)
+    assert [tuple(r) for r in conn.execute("SELECT detail, notified, uploaded FROM events")] == [("d", 1, 0)]
+    assert db.migrate(conn) == []
+    conn.close()
 
 
 def test_raw_measurements_mode_and_batches(env):

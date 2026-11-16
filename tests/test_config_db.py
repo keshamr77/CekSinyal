@@ -131,3 +131,31 @@ def test_device_sinr_unit_config(tmp_path):
     p.write_text("devices:\n  - serial: A\n    sinr_unit: desibel\n", encoding="utf-8")
     with pytest.raises(ConfigError):
         load_config(p)
+
+
+def test_connect_from_many_threads_at_once(tmp_path):
+    """`run` membuka satu koneksi per thread ke database yang mungkin baru dibuat: tidak boleh 'database is locked'."""
+    import threading
+
+    path = tmp_path / "ramai.db"
+    errors = []
+    start = threading.Barrier(12)
+
+    def worker(i):
+        try:
+            start.wait()
+            conn = db.connect(path)
+            db.insert_event(conn, "t", "k", None, db.EVENT_COLLECTOR_ERROR, str(i))
+            conn.close()
+        except Exception as exc:  # dikumpulkan supaya terlihat di assert
+            errors.append(repr(exc))
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    conn = db.connect(path)
+    assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 12
+    conn.close()

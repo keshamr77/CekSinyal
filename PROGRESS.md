@@ -239,3 +239,113 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 - Infinix SIM 2 (Tri): `rssnr=0` di `mSignalStrength` dan di semua CellInfo, kemungkinan nilai kosong, bukan 0 dB sungguhan.
   Parser masih menyimpannya sebagai SINR 0,0. Perlu dicek (bandingkan dengan aplikasi Network Cell Info) kalau SIM 2 ikut dipantau.
 - Xiaomi Android 10 (Redmi 9C): `pci`/`cell_id` kosong di semua sampel, `earfcn`/`band` hanya ±21% sampel. Perlu sumber lain.
+
+---
+
+# Dashboard web (Streamlit)
+
+Status: tahap (a) lapisan data, (b) halaman, (c) privasi, (d) deploy + README **selesai dan ter-commit**. Mode sheets dan
+deploy ke Streamlit Community Cloud hanya diuji dengan mock: **perlu uji manual**.
+
+## Rencana dan struktur
+
+| File | Isi |
+|---|---|
+| `ceksinyal/dashboard/data.py` | Lapisan data (pandas saja, tanpa streamlit): pemuat SQLite/Sheets, normalisasi skema, kategori, ringkasan, perbandingan, rekomendasi, kualitas data, alias privasi, konversi waktu |
+| `ceksinyal/dashboard/settings.py` | Pengaturan: variabel lingkungan → `st.secrets` → `config.yaml`; pemuat sesuai mode |
+| `ceksinyal/dashboard/charts.py` | Grafik Altair |
+| `ceksinyal/dashboard/app.py` | Tujuh halaman (tab) + filter |
+| `dashboard/streamlit_app.py`, `dashboard/requirements.txt` | Titik masuk (lokal dan Cloud) dan dependensi opsional |
+| `.streamlit/secrets.toml.example` | Contoh secrets berisi placeholder (`secrets.toml` asli di-.gitignore) |
+| `tests/test_dashboard_data.py`, `_settings.py`, `_app.py`, `dashboard_helpers.py` | Tes lapisan data, pengaturan + mode sheets (gspread palsu), smoke test AppTest, DB sintetis |
+
+Skema DataFrame bersama (waktu = datetime UTC ber-zona):
+- `measurements` (satu baris per menit per HP): ts, kos, device, operator, n_samples, n_no_service, n_parse_failed, rat,
+  rsrp, rsrp_min, rsrq, sinr, pci, cell_id, earfcn, band
+- `speedtests`: ts, kos, operator, method, ping_ms, download_mbps, upload_mbps, ok, error
+- `diagnoses`: window_start, window_end, kos, operator, n_samples, median_rsrp, median_sinr, median_download,
+  cell_changes, result, advice, detail
+- `events`: ts, kos, operator, type, detail
+
+Grafik: (1) linimasa RSRP/RSRQ/SINR per operator dengan latar periode bermasalah dan garis batas kategori;
+(2) batang bertumpuk persen waktu Baik/Cukup/Buruk per kos × operator; (3) unduh, unggah, ping terhadap waktu.
+
+Dependensi baru (opsional, hanya `dashboard/requirements.txt`): `streamlit`. `pandas` dan `altair` sudah ikut terpasang
+bersama streamlit, jadi tidak ada pustaka grafik tambahan. `requirements.txt` inti tidak berubah.
+
+## Keputusan desain (default tanpa bertanya)
+
+- **Tab `events` ditambahkan ke uploader** (kejadian putus dibutuhkan dashboard): kolom baru `events.uploaded` lewat
+  `db.migrate()`, tab `events` berisi signal_lost/diagnosis_changed/collector_error; `daily_summary` tidak dikirim.
+  Kejadian lama di DB ikut terkirim pada upload berikutnya. Dashboard tetap jalan kalau tab `events` belum ada.
+- **measurements disamakan ke per menit** di lapisan data dengan memanggil `uploader.sheets.aggregate_minutes` pada data
+  SQLite. Ada tes yang membuktikan SQLite → uploader → Sheets palsu → `load_sheets` menghasilkan DataFrame identik dengan
+  `load_sqlite`. Spreadsheet yang diisi per sampel (`aggregate_measurements: false`) juga diagregasi saat dimuat.
+- Median di dashboard = median dari rata-rata per menit (bukan per sampel seperti `report`), jadi bisa sedikit beda.
+- **Kategori**: Baik ≥ batas baik, Buruk < batas buruk, selain itu Cukup. Batas buruk RSRP/SINR = ambang diagnosis;
+  batas lain di `dashboard.*` (RSRP baik −100, RSRQ −10/−15, SINR baik 10, unduh 10/2 Mbps). Batas baik tidak bisa lebih
+  rendah dari batas buruk.
+- **"24 jam terakhir" dihitung dari data terbaru**, bukan jam sekarang; data lama tetap tampil dengan peringatan
+  "Alat ukur diam" kalau lebih tua dari `stale_minutes`.
+- **Privasi**: mode publik bawaan `true` di mana pun (termasuk lokal; matikan dengan `--no-public` atau
+  `dashboard.public: false`). Kos tanpa alias → "Kos N" menurut urutan abjad nama asli. Serial → "HP N" (urut kos,
+  operator, serial) dan tidak pernah tampil di mode apa pun. Rincian `collector_error` diganti kalimat umum; IP lokal di
+  pesan error speedtest disamarkan; `source_ip` tidak dimuat sama sekali. Pesan error pemuatan hanya menampilkan nama
+  kelas exception.
+- **Satu halaman dengan 7 tab** (bukan multi-halaman): tab bisa digeser di HP dan filter berlaku untuk semuanya.
+- **Linimasa** dirender sebagai tiga grafik terpisah per operator (bukan satu grafik gabungan), karena grafik gabungan
+  Vega-Lite tidak mengikuti lebar layar HP. Titik diringkas ke ≤ 600 per seri; jeda data memutus garis.
+- **Latar periode bermasalah satu warna** + tabel periode di bawah grafik; jenis diagnosis tidak dibedakan lewat warna
+  (7 warna status tidak terbedakan bagi buta warna). Kategori selalu ikon + teks.
+- Cache `st.cache_data` dengan TTL `cache_ttl_seconds` (300); kunci cache tidak memuat rahasia; untuk SQLite, waktu ubah
+  file ikut jadi kunci supaya data baru langsung terbaca.
+- Titik masuk di `dashboard/streamlit_app.py` supaya `dashboard/requirements.txt` berada di folder yang sama (Cloud
+  memakai file dependensi di folder file utama), dan `requirements.txt` inti tetap ramping.
+- Baris ganda di Sheets (rerun diagnosis, batch terkirim dua kali) dibuang saat dimuat.
+
+## Verifikasi dengan data asli (mode sqlite, salinan DB yang sudah dikoreksi fix-sinr / fix-band)
+
+Semua 7 tab tampil tanpa exception untuk kedua DB (lewat AppTest; Xiaomi juga lewat server sungguhan + tangkapan layar;
+lebar HP 390 px dicek dengan DB sintetis dua operator).
+
+| | Xiaomi (`Garden House` → tampil "Kos 1") | Infinix (`belum-diatur` → tampil "Kos 1") |
+|---|---|---|
+| Baris per menit | 127 | 9 |
+| Diagnosis terakhir | Normal (jendela sampai 15/11 17:50 WIB) | Normal (sampai 15/11 23:30 WIB) |
+| Median RSRP | −91,5 dBm → Baik | −64,8 dBm → Baik |
+| Median RSRQ | −12,8 dB → Cukup | −10,8 dB → Cukup |
+| Median SINR | 3,9 dB → Cukup | 11,8 dB → Baik |
+| Unduh terakhir | Tidak ada data | Tidak ada data |
+| Terakhir terlihat | 15/11 17:49 WIB, peringatan "Alat ukur diam" | 15/11 23:24 WIB, peringatan "Alat ukur diam" |
+| Waktu RSRP Baik/Cukup/Buruk | 100 / 0 / 0 % | 100 / 0 / 0 % |
+| Waktu RSRQ Baik/Cukup/Buruk | 0,8 / 96,1 / 3,1 % | 0 / 100 / 0 % |
+| Waktu SINR Baik/Cukup/Buruk | 0,8 / 92,1 / 7,1 % | 100 / 0 / 0 % |
+| Jendela diagnosis | 13 Normal, 2 Data kurang; 0 periode bermasalah | 1 Normal, 1 Data kurang |
+| Rekomendasi | belum bisa (hanya 1 operator) | belum bisa (hanya 1 operator) |
+| Kejadian / speedtest | 0 / 0 | 0 / 0 |
+| Kualitas data (HP 1) | RSRP/RSRQ/SINR 100%, PCI 0%, identitas sel 0%, EARFCN/band 22% menit; 1 jeda 15:35–15:49 WIB (14 menit) | semua kolom 100%, tanpa jeda |
+
+Catatan pencocokan: laporan (`report`) memberi median per sampel −91 dBm / 4,5 dB untuk Xiaomi; dashboard memberi
+−91,5 dBm / 3,9 dB karena memakai rata-rata per menit. EARFCN "22% menit" vs "21% sampel" dengan alasan yang sama.
+
+## Perlu uji manual (dashboard)
+
+- [ ] Mode sheets dengan spreadsheet asli: service account khusus baca (Viewer), `python -m ceksinyal dashboard --mode sheets`.
+- [ ] Jalankan `upload` sekali setelah pembaruan ini: tab `events` terbentuk dan kejadian lama terkirim.
+- [ ] Deploy ke Streamlit Community Cloud: main file `dashboard/streamlit_app.py`; pastikan Cloud memasang dari
+      `dashboard/requirements.txt` (kalau tidak, salin isinya ke berkas dependensi yang diminta Cloud).
+- [ ] Secrets di Cloud: `private_key` satu baris dengan `\n`; nama kos tampil sebagai alias; tidak ada serial/nama asli.
+- [ ] Pengaturan Sharing di Cloud: cek apakah akun bisa membatasi penonton; putuskan publik atau terbatas.
+- [ ] Buka di HP sungguhan (Android + iPhone): tab bisa digeser, panel filter terbuka, grafik bisa disentuh.
+- [ ] Data ≥ 1 hari dari ≥ 2 kos dan ≥ 2 operator: cek kecepatan muat, rekomendasi, dan perbandingan antar-kos.
+- [ ] Minta satu orang non-teknik membaca tab Ringkasan dan "Cara membaca": apakah kalimatnya dimengerti.
+- [ ] Kuota baca Sheets saat banyak penonton (TTL 300 detik seharusnya cukup).
+
+## TODO / keterbatasan dashboard
+
+- Di laptop ini Windows Application Control memblokir DLL pandas 3.1.1 dan pyarrow 26; tes dijalankan dengan
+  pandas 2.2.3 + pyarrow 18.1.0. Kode ditulis untuk pandas 2 dan 3, tetapi pandas 3 belum pernah dijalankan di sini.
+- Alias otomatis "Kos N" bisa bergeser kalau kos baru ditambahkan; daftarkan alias secara eksplisit.
+- Seluruh isi tab Sheets dibaca tiap muat ulang; untuk data berbulan-bulan perlu pembatasan rentang di sisi pemuat.
+- Warna grafik memakai palet mode terang; di tema gelap masih terbaca tetapi belum disetel khusus.
+- Tabel lebar (perbandingan, kualitas data) digeser menyamping di HP.

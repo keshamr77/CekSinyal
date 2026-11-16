@@ -473,6 +473,41 @@ def cmd_selftest(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
     return selftest.exit_code(checks)
 
 
+def cmd_dashboard(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
+    import importlib.util
+    import os
+    import subprocess
+
+    missing = [m for m in ("streamlit", "pandas", "altair") if importlib.util.find_spec(m) is None]
+    if missing:
+        log.error("dependensi dashboard belum terpasang (%s): pip install -r dashboard/requirements.txt", ", ".join(missing))
+        return 1
+    entry = Path(__file__).resolve().parent.parent / "dashboard" / "streamlit_app.py"
+    env = dict(os.environ)
+    if args.config:
+        env["CEKSINYAL_CONFIG"] = str(Path(args.config).resolve())
+    if args.db:
+        path = Path(args.db).resolve()
+        if not path.is_file():
+            log.error("database tidak ditemukan: %s", path)
+            return 1
+        env["CEKSINYAL_DASHBOARD_DB"] = str(path)
+    if args.mode:
+        env["CEKSINYAL_DASHBOARD_MODE"] = args.mode
+    if args.public is not None:
+        env["CEKSINYAL_DASHBOARD_PUBLIC"] = "1" if args.public else "0"
+    cmd = [sys.executable, "-m", "streamlit", "run", str(entry), "--browser.gatherUsageStats", "false"]
+    if args.port:
+        cmd += ["--server.port", str(args.port)]
+    if args.no_browser:
+        cmd += ["--server.headless", "true"]
+    log.info("menjalankan dashboard (Ctrl+C untuk berhenti)")
+    try:
+        return subprocess.call(cmd, env=env)
+    except KeyboardInterrupt:
+        return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", default=argparse.SUPPRESS, help="path config.yaml")
@@ -551,6 +586,16 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("run", parents=[common],
                        help="jalankan semuanya: collector, speedtest, diagnosis, uploader, bot")
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("dashboard", parents=[common], help="jalankan dashboard web (Streamlit) di laptop ini")
+    p.add_argument("--db", help="baca file SQLite ini (mode sqlite), mis. data/ceksinyal_xiaomi.db")
+    p.add_argument("--mode", choices=["sqlite", "sheets"], help="paksa sumber data (bawaan: dari config)")
+    p.add_argument("--public", dest="public", action="store_true", default=None,
+                   help="mode publik: nama kos selalu alias (bawaan)")
+    p.add_argument("--no-public", dest="public", action="store_false", help="tampilkan nama kos asli (hanya lokal)")
+    p.add_argument("--port", type=int, help="port server (bawaan 8501)")
+    p.add_argument("--no-browser", action="store_true", help="jangan membuka browser otomatis")
+    p.set_defaults(func=cmd_dashboard)
 
     p = sub.add_parser("selftest", parents=[common], help="cek config, kos, ADB/HP, tethering, Sheets, dan bot")
     p.add_argument("--send-test", action="store_true", help="kirim juga satu pesan uji ke Telegram")

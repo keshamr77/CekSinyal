@@ -41,6 +41,12 @@ DIAGNOSIS_HEADERS = [
 ]
 
 
+EVENT_HEADERS = ["id", "ts", "kos", "operator", "type", "detail"]
+# Penanda internal (ringkasan harian sudah dikirim) tidak perlu ada di dashboard.
+EVENT_TYPES = (db.EVENT_SIGNAL_LOST, db.EVENT_DIAGNOSIS_CHANGED, db.EVENT_COLLECTOR_ERROR)
+TABLES = ("measurements", "speedtests", "diagnoses", "events")
+
+
 class SheetsBackend(Protocol):
     def append(self, tab: str, headers: list[str], rows: list[list[Any]]) -> None:
         """Tambahkan baris ke tab (membuat tab dan baris judul kalau belum ada). Melempar kalau gagal."""
@@ -144,8 +150,11 @@ class Uploader:
             self.conn.executemany(f"UPDATE {table} SET uploaded = 1 WHERE id = ?", [(i,) for i in ids])
 
     def _simple_batch(self, table: str, headers: list[str]) -> tuple[list[list[Any]], list[int]]:
+        where = "uploaded = 0"
+        if table == "events":
+            where += " AND type IN (%s)" % ", ".join(f"'{t}'" for t in EVENT_TYPES)
         rows = self.conn.execute(
-            f"SELECT {', '.join(headers)} FROM {table} WHERE uploaded = 0 ORDER BY id LIMIT ?",
+            f"SELECT {', '.join(headers)} FROM {table} WHERE {where} ORDER BY id LIMIT ?",
             (self.config.sheets.batch_size,),
         ).fetchall()
         return [[_cell(v) for v in r] for r in rows], [r["id"] for r in rows]
@@ -175,7 +184,7 @@ class Uploader:
                 rows, ids = self._minute_batch()
             else:
                 headers = {"measurements": RAW_MEASUREMENT_HEADERS, "speedtests": SPEEDTEST_HEADERS,
-                           "diagnoses": DIAGNOSIS_HEADERS}[table]
+                           "diagnoses": DIAGNOSIS_HEADERS, "events": EVENT_HEADERS}[table]
                 rows, ids = self._simple_batch(table, headers)
             if not rows:
                 break
@@ -187,15 +196,18 @@ class Uploader:
     # ------------------------------------------------------------ publik
 
     def pending(self) -> dict[str, int]:
-        return {
-            table: self.conn.execute(f"SELECT COUNT(*) FROM {table} WHERE uploaded = 0").fetchone()[0]
-            for table in ("measurements", "speedtests", "diagnoses")
-        }
+        out = {}
+        for table in TABLES:
+            sql = f"SELECT COUNT(*) FROM {table} WHERE uploaded = 0"
+            if table == "events":
+                sql += " AND type IN (%s)" % ", ".join(f"'{t}'" for t in EVENT_TYPES)
+            out[table] = self.conn.execute(sql).fetchone()[0]
+        return out
 
     def upload_pending(self) -> dict[str, int]:
         """Kirim baris tertunda semua tabel. Tidak pernah melempar; kegagalan dicatat dan dicoba lagi nanti."""
         sent: dict[str, int] = {}
-        for table in ("measurements", "speedtests", "diagnoses"):
+        for table in TABLES:
             try:
                 sent[table] = self._upload_table(table)
             except Exception as exc:
