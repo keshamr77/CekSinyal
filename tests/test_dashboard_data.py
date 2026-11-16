@@ -219,7 +219,8 @@ def test_apply_privacy_hides_names_serials_and_paths(ds):
     assert set(public.measurements["device"]) == {"HP 1", "HP 2", "HP 3"}
     everything = " ".join(
         df.to_csv() for df in (public.measurements, public.speedtests, public.diagnoses, public.events))
-    for secret in (SERIAL_A, SERIAL_B, SERIAL_C, "Garden House", "Kos Melati", "budi", "C:\\Users"):
+    assert public.speedtests["error"].dropna().iloc[0].startswith("IP sumber (IP) tidak ada")
+    for secret in (SERIAL_A, SERIAL_B, SERIAL_C, "Garden House", "Kos Melati", "budi", "C:\\Users", "10.0.0.5"):
         assert secret not in everything, secret
     collector = public.events[public.events["type"] == "collector_error"].iloc[0]
     assert collector["detail"] == "HP terputus dari laptop" and collector["kos"] == "Kos A"

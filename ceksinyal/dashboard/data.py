@@ -11,6 +11,7 @@ Skema bersama (semua waktu = datetime UTC ber-zona; tampilan mengonversinya ke W
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
@@ -60,6 +61,7 @@ EVENT_LABELS = {
     db.EVENT_COLLECTOR_ERROR: "Gangguan alat ukur",
 }
 GAP_MINUTES = 5  # jeda antar-menit data yang dianggap "data bolong"
+_IPV4 = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
 
 
 @dataclass
@@ -294,7 +296,12 @@ def apply_privacy(ds: Dataset, aliases: dict[str, str], public: bool) -> Dataset
         # Rincian gangguan alat ukur bisa memuat path file di laptop anggota: tidak ditampilkan.
         collector = events["type"] == db.EVENT_COLLECTOR_ERROR
         events.loc[collector, "detail"] = events.loc[collector, "detail"].map(_collector_summary)
-    return replace(ds, measurements=measurements, speedtests=rename_kos(ds.speedtests),
+    speedtests = rename_kos(ds.speedtests)
+    if not speedtests.empty:
+        # Pesan error uji kecepatan bisa memuat IP lokal laptop ("IP sumber 192.168.42.129 ...").
+        speedtests["error"] = speedtests["error"].map(
+            lambda t: _IPV4.sub("(IP)", scrub(t)) if isinstance(t, str) else t)
+    return replace(ds, measurements=measurements, speedtests=speedtests,
                    diagnoses=rename_kos(ds.diagnoses), events=events)
 
 

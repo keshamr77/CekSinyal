@@ -47,7 +47,7 @@ def make_db(path: Path) -> Path:
         db.insert_speedtest(conn, ts, gh, "Telkomsel", SpeedResult("full" if i == 4 else "light", "192.168.42.129", 35.0 + i, 20.0 + i, 6.0 if i == 4 else None, True))
         db.insert_speedtest(conn, ts, gh, "Tri", SpeedResult("light", "192.168.43.10", 80.0, 1.5 if i >= 6 else 6.0, None, True))
     db.insert_speedtest(conn, db.iso(T0 + timedelta(minutes=5)), "Kos Melati", "XL",
-                        SpeedResult("light", "10.0.0.5", error="unduh gagal: timeout"))
+                        SpeedResult("light", "10.0.0.5", error="IP sumber 10.0.0.5 tidak ada di laptop (USB tethering mati atau IP berubah)"))
     db.insert_event(conn, db.iso(T0 + timedelta(minutes=55)), gh, "Tri", db.EVENT_COLLECTOR_ERROR,
                     f"HP {SERIAL_B} terputus: tidak terdeteksi oleh adb; output mentah: C:\\Users\\budi\\data\\raw\\x.txt")
     db.insert_event(conn, db.iso(T0), gh, None, db.EVENT_DAILY_SUMMARY, "2026-11-14", notified=1)

@@ -25,6 +25,9 @@ def db_path(tmp_path_factory):
 @pytest.fixture
 def run_app(monkeypatch, tmp_path):
     """Jalankan app dari folder kosong (tanpa config.yaml/.env/secrets milik pengembang)."""
+    import streamlit as st
+
+    st.cache_data.clear()  # cache_data hidup sepanjang proses: jangan terbawa antar-tes
     monkeypatch.chdir(tmp_path)
     for key in ("CEKSINYAL_CONFIG", "GOOGLE_CREDENTIALS_FILE", "GOOGLE_SPREADSHEET_ID",
                 "CEKSINYAL_DASHBOARD_MODE", "CEKSINYAL_DASHBOARD_PUBLIC", "CEKSINYAL_DASHBOARD_DB"):
@@ -72,7 +75,8 @@ def test_all_pages_render_without_exception(run_app, db_path):
     ):
         assert expected in text, expected
     # privasi: tidak ada nama kos asli, serial, atau path laptop di mana pun
-    for secret in ("Garden House", "Kos Melati", SERIAL_A, SERIAL_B, SERIAL_C, "budi", "192.168."):
+    assert "IP sumber (IP) tidak ada di laptop" in text
+    for secret in ("Garden House", "Kos Melati", SERIAL_A, SERIAL_B, SERIAL_C, "budi", "192.168.", "10.0.0.5"):
         assert secret not in text, secret
 
 
