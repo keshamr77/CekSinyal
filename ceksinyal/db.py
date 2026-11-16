@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -106,18 +107,34 @@ def iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
+CONNECT_ATTEMPTS = 8
+
+
 def connect(path: Path | str) -> sqlite3.Connection:
-    """Buka database (membuat folder dan skema kalau belum ada)."""
+    """Buka database (membuat folder dan skema kalau belum ada).
+
+    `run` membuka satu koneksi per thread. Saat beberapa thread membuka database yang baru dibuat
+    secara bersamaan, perpindahan ke mode WAL dan pembuatan skema bisa gagal "database is locked"
+    (PRAGMA journal_mode tidak menunggu seperti kueri biasa), jadi dicoba ulang beberapa kali.
+    """
     path = Path(path)
     if str(path) != ":memory:":
         path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=30)
-    conn.row_factory = sqlite3.Row
-    if str(path) != ":memory:":
-        conn.execute("PRAGMA journal_mode=WAL")
-    conn.executescript(SCHEMA)
-    migrate(conn)
-    return conn
+    for attempt in range(CONNECT_ATTEMPTS):
+        conn = sqlite3.connect(str(path), timeout=30)
+        try:
+            conn.row_factory = sqlite3.Row
+            if str(path) != ":memory:":
+                conn.execute("PRAGMA journal_mode=WAL")
+            conn.executescript(SCHEMA)
+            migrate(conn)
+            return conn
+        except sqlite3.OperationalError as exc:
+            conn.close()
+            if "locked" not in str(exc).lower() or attempt == CONNECT_ATTEMPTS - 1:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+    raise AssertionError("tidak tercapai")
 
 
 def migrate(conn: sqlite3.Connection) -> list[str]:
