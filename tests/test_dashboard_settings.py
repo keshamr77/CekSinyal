@@ -113,8 +113,9 @@ def fake_gspread(monkeypatch, clean):
         def __init__(self, name):
             self.name = name
 
-        def get_all_values(self):
+        def get_all_values(self, value_render_option=None):
             calls["reads"].append(self.name)
+            calls.setdefault("render", []).append(value_render_option)
             return tabs[self.name]
 
     class Spreadsheet:
@@ -150,6 +151,8 @@ def test_load_dataset_from_sheets_with_secrets(fake_gspread, clean):
     assert settings.READONLY_SCOPES == ["https://www.googleapis.com/auth/spreadsheets.readonly"]  # hanya-baca
     assert fake_gspread["opened"] == ["SHEET123"]
     assert sorted(fake_gspread["reads"]) == ["diagnoses", "measurements", "speedtests"]  # satu baca per tab
+    # Nilai mentah: spreadsheet ber-locale Indonesia tidak mengubah angka menjadi teks "25,68".
+    assert set(fake_gspread["render"]) == {"UNFORMATTED_VALUE"}
     assert len(ds.measurements) == 340 and ds.events.empty  # tab events belum ada: tidak error
     assert ds.kos_names() == ["Garden House", "Kos Melati"] and "Google Sheets" in ds.source
     cards = data.summary_cards(data.apply_privacy(ds, s.aliases, s.public), data.Categories(), now=END)
