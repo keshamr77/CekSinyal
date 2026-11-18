@@ -78,8 +78,10 @@ def plan(conn: sqlite3.Connection, serial: str | None = None) -> FixResult:
     if _has_column(conn, "measurements", "sinr_raw"):
         where.append("sinr_raw IS NULL")  # baris baru sudah menyimpan nilai mentah
     if serial:
-        where.append("device_serial = ?")
-        params.append(serial)
+        # HP dual-SIM yang dibaca dua slot tersimpan sebagai "SERIAL/sim1" dan "SERIAL/sim2".
+        where.append("(device_serial = ? OR device_serial LIKE ? ESCAPE '!')")
+        pattern = serial.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        params += [serial, pattern + "/sim%"]
     rows = conn.execute(
         f"SELECT id, device_serial, sinr FROM measurements WHERE {' AND '.join(where)} ORDER BY id",
         params,

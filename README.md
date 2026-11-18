@@ -61,7 +61,8 @@ devices:
 ```
 
 Kalau `kos` belum diisi, `collect` dan `run` menampilkan peringatan besar dan `selftest` gagal: data tanpa nama kos
-tidak bisa dibandingkan. HP dual-SIM: tambahkan `phone_id: 0` atau `1` untuk memilih slot SIM.
+tidak bisa dibandingkan. HP dual-SIM: tambahkan `phone_id: 0` atau `1` untuk memilih slot SIM, atau tulis HP yang sama
+dua kali untuk membaca kedua SIM sekaligus (lihat "HP dual-SIM: dua operator dari satu HP").
 
 ### 4. (Opsional) uji kecepatan, Sheets, dan bot
 
@@ -86,8 +87,36 @@ Tips di kos:
 
 - Letakkan HP di titik yang biasa dipakai (meja belajar), jangan dipindah-pindah selama merekam.
 - Matikan mode hemat baterai laptop/sleep; colok charger. Kabel USB yang longgar akan tercatat sebagai gangguan alat ukur.
-- Untuk membandingkan operator, pakai dua HP sekaligus. Satu HP dual-SIM hanya dibaca satu slot per sesi
-  (satu serial = satu `phone_id`).
+- Untuk membandingkan operator, paling akurat pakai dua HP sekaligus. Satu HP dual-SIM juga bisa membaca dua operator
+  sekaligus, tetapi hanya SIM data yang bisa diuji kecepatannya (lihat bagian berikut).
+
+### HP dual-SIM: dua operator dari satu HP
+
+Tulis serial yang sama dua kali di `devices`, satu entri per slot SIM, masing-masing dengan `phone_id` (0 = SIM 1,
+1 = SIM 2) dan operatornya:
+
+```yaml
+devices:
+  - serial: RRCW801YXVV
+    operator: Telkomsel
+    phone_id: 0
+    source_ip: 10.20.249.202   # hanya di slot SIM data seluler
+  - serial: RRCW801YXVV
+    operator: Indosat
+    phone_id: 1
+```
+
+- `dumpsys` dibaca sekali per HP, lalu disimpan satu baris per slot. Kolom `device_serial` berisi `SERIAL/sim1` dan
+  `SERIAL/sim2` (hanya untuk HP yang ditulis dua kali; HP satu entri tetap memakai serial biasa). Dashboard
+  menampilkannya sebagai "HP 1 · SIM 1" dan "HP 1 · SIM 2".
+- **Uji kecepatan hanya untuk SIM data**: USB tethering selalu lewat SIM yang dipilih untuk data seluler di HP. Isi
+  `source_ip` hanya di slot itu; slot lain hanya diukur sinyalnya, sehingga aturan "Sel padat" untuk operator itu
+  tercatat "tidak tersedia". Kalau SIM data di HP diganti, pindahkan juga `source_ip` di config.
+- Satu HP dual-SIM tetap dihitung satu HP untuk `collector.max_devices`. HP yang putus mencatat satu kejadian per operator.
+- `probe` dan `selftest` menampilkan hasil per slot; `probe --phone-id 1` hanya membaca satu slot.
+- Kalau dua slot ditulis, tiap entri wajib punya `phone_id` berbeda; `source_ip` hanya boleh di satu slot.
+- Modem dual-SIM berbagi radio: SIM yang tidak aktif data bisa lebih jarang diperbarui, dan beberapa HP melaporkan nilai
+  kosong untuk SIM 2 (Infinix: SINR selalu 0, dianggap "tidak tersedia" oleh diagnosis).
 
 ### 6. Lihat hasil
 
@@ -172,7 +201,7 @@ Kode keluar `probe`: 0 = semua berhasil, 1 = HP/ADB bermasalah, 2 = ada yang par
 | `collector.raw_dump_interval_minutes` | `60` | Maksimal satu file output mentah per HP per periode ini. |
 | `devices[].serial` | – | Serial ADB HP. |
 | `devices[].operator` | – | Nama operator. Kalau kosong: `getprop gsm.operator.alpha`, lalu nama dari dumpsys. |
-| `devices[].phone_id` | otomatis | Slot SIM untuk HP dual-SIM (0/1). Kalau kosong, dipilih slot yang punya sinyal dan koneksi data aktif. |
+| `devices[].phone_id` | otomatis | Slot SIM untuk HP dual-SIM (0/1). Kalau kosong, dipilih slot yang punya sinyal dan koneksi data aktif. Wajib kalau serial yang sama ditulis dua kali (dua slot dibaca sekaligus). |
 | `devices[].source_ip` | – | IP laptop di interface USB tethering HP ini. Wajib untuk uji kecepatan. |
 | `speedtest.*` | lihat "Uji kecepatan" | Jadwal dan target uji kecepatan. |
 | `sheets.*` | lihat "Dashboard Google Sheets" | Spreadsheet bersama dan cara upload. |
@@ -509,8 +538,7 @@ tanggal lokal `YYYY-MM-DD`. Waktu di laporan memakai `timezone_offset_hours`.
 
 ## TODO
 
-- HP dual-SIM: baru satu slot SIM per HP yang bisa dipantau dalam satu sesi (`phone_id`). Memantau dua slot sekaligus
-  butuh dua entri `devices` untuk serial yang sama, yang belum didukung.
+- HP dual-SIM yang dibaca dua slot: hanya SIM data yang bisa diuji kecepatannya (keterbatasan tethering, bukan perangkat lunak).
 - Batas frekuensi alert bot disimpan di memori; setelah `run` di-restart, alert yang sama bisa terkirim lagi lebih cepat
   dari 15 menit.
 - Infinix Android 14 dual-SIM: SIM 2 (Tri) menunjukkan `rssnr=0` di `mSignalStrength` dan di semua CellInfo.

@@ -226,9 +226,37 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 - [ ] M2: kalibrasi ambang (`diagnosis.*`) dengan lembar validasi; setelah diubah jalankan `diagnose --rerun`.
 - [ ] M1: `probe` di HP lain (Samsung/Oppo/Vivo, dan HP 5G) lalu tambahkan fixture `real_*.txt`.
 
+## HP dual-SIM: dua slot sekaligus (2026-11-18)
+
+Keputusan desain:
+- Config: serial yang sama boleh ditulis dua kali, masing-masing dengan `phone_id` (wajib, berbeda) dan operator sendiri.
+  Dipilih daripada sintaks baru (`phone_ids: [0, 1]`) karena tiap slot memang butuh operator, sinr_unit, dan source_ip sendiri.
+- Kolom `device_serial` = `SERIAL/sim1` / `SERIAL/sim2` hanya untuk HP yang ditulis dua kali (`DeviceConfig.key`).
+  Dengan begitu skema SQLite, kolom Sheets, agregasi per menit, diagnosis per operator, laporan, dan dashboard tidak
+  perlu kolom baru. HP satu entri tetap memakai serial biasa (data lama tetap satu seri).
+- Collector membaca `dumpsys` sekali per HP fisik (`Config.device_serials()`), lalu `_store_slot` per entri. `max_devices`
+  menghitung HP fisik. HP putus -> satu event per operator (alert bot per operator).
+- Validasi: `source_ip` hanya di satu slot per HP, dan satu `source_ip` tidak boleh dipakai dua entri (hasil uji akan dicatat
+  untuk operator yang salah). Slot tanpa `source_ip` di HP dual-SIM: speedtest dan selftest memberi keterangan
+  "bukan SIM data" (selftest: LEWATI), bukan peringatan "source_ip belum diisi".
+- Dashboard: `device_label_map` mengelompokkan per serial dasar ("HP 1 · SIM 1"); serial dasar juga dipetakan supaya tersamar
+  di teks kejadian (`HP SERIAL terputus`). Penggantian teks mendahulukan kunci terpanjang.
+- `fix-sinr --serial SERIAL` juga mengenai `SERIAL/sim1` dan `SERIAL/sim2`.
+- Tes: `tests/test_dual_sim.py` (config, collector dengan fixture asli S22, probe, speedtest, selftest, uploader, fix-sinr,
+  label dashboard).
+
+Perlu uji manual:
+- [ ] S22 dual-SIM (Telkomsel + Indosat) dengan dua entri: `devices`, `probe`, `selftest`, lalu `run` ≥ 1 jam; cek dua baris
+      per pembacaan, diagnosis untuk kedua operator, dan rekomendasi operator di kos yang sama.
+- [ ] Tethering lewat SIM data: hasil speedtest tercatat untuk operator slot yang benar; ganti SIM data di HP lalu pindahkan
+      `source_ip`.
+- [ ] Dashboard: label "HP 1 · SIM 1/2" dan teks kejadian tidak memuat serial asli.
+- [ ] HP dual-SIM merek lain (mis. Infinix): SIM 2 terbaca sesuai `phone_id`.
+
 ## TODO / di luar cakupan
 
-- HP dual-SIM: hanya satu slot per serial per sesi (`phone_id`); memantau dua SIM dari satu HP sekaligus belum didukung.
+- HP dual-SIM dua slot sekaligus: hanya SIM data yang bisa diuji kecepatannya (tethering), jadi "Sel padat" untuk SIM lain
+  selalu "tidak tersedia".
 - Batas frekuensi alert bot hanya di memori (hilang saat restart).
 - `diagnose --rerun` membuat baris diagnosis ganda di Google Sheets (baris lama tidak dihapus dari sheet).
 - Uploader "minimal sekali": batch bisa ganda di sheet kalau jawaban API hilang; belum ada dedup.

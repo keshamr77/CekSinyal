@@ -51,14 +51,19 @@ class SpeedtestRunner:
         out = []
         for dev in self.config.devices:
             if not dev.source_ip:
-                self._warn_once(dev.serial, f"HP {dev.serial}: source_ip belum diisi di config, uji kecepatan dilewati "
-                                            "(lihat: python -m ceksinyal interfaces)")
+                if dev.multi_sim and any(d.source_ip for d in self.config.device_entries(dev.serial)):
+                    # HP dual-SIM: tethering selalu lewat SIM data; slot lain hanya diukur sinyalnya.
+                    self._warn_once(dev.key, f"HP {dev.label} ({dev.operator or '?'}): bukan SIM data, "
+                                             "hanya sinyal yang diukur (uji kecepatan lewat slot lain)")
+                    continue
+                self._warn_once(dev.key, f"HP {dev.label}: source_ip belum diisi di config, uji kecepatan dilewati "
+                                         "(lihat: python -m ceksinyal interfaces)")
                 continue
-            operator = dev.operator or self._operator_from_db(dev.serial)
+            operator = dev.operator or self._operator_from_db(dev.key)
             if not operator:
-                self._warn_once(dev.serial, f"HP {dev.serial}: operator belum diketahui, uji kecepatan dilewati")
+                self._warn_once(dev.key, f"HP {dev.label}: operator belum diketahui, uji kecepatan dilewati")
                 continue
-            out.append(Target(dev.serial, operator, dev.source_ip))
+            out.append(Target(dev.key, operator, dev.source_ip))
         if not self.config.devices:
             self._warn_once("", "'devices' kosong di config: uji kecepatan butuh devices[].source_ip")
         return out

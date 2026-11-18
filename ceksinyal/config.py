@@ -39,6 +39,33 @@ class DeviceConfig:
     phone_id: int | None = None
     sinr_unit: str = "auto"  # satuan rssnr LTE: auto (dari SDK HP), db, atau deci_db
     source_ip: str | None = None  # IP laptop di interface USB tethering HP ini (untuk uji kecepatan)
+    multi_sim: bool = False  # diisi saat config dibaca: serial ini terdaftar lebih dari sekali (dua slot SIM)
+
+    @property
+    def key(self) -> str:
+        """Nilai kolom `device_serial`: serial ADB, ditambah `/sim<N>` kalau HP ini dibaca dua slot SIM-nya."""
+        return sim_key(self.serial, self.phone_id) if self.multi_sim else self.serial
+
+    @property
+    def label(self) -> str:
+        """Nama untuk log dan pesan: serial, ditambah slot SIM kalau dua slot dibaca."""
+        return f"{self.serial} SIM {self.phone_id + 1}" if self.multi_sim and self.phone_id is not None else self.serial
+
+
+SIM_KEY_SEP = "/sim"
+
+
+def sim_key(serial: str, phone_id: int | None) -> str:
+    """`device_serial` untuk satu slot SIM: "SERIAL/sim1" (phone_id 0), "SERIAL/sim2" (phone_id 1)."""
+    return f"{serial}{SIM_KEY_SEP}{(phone_id or 0) + 1}"
+
+
+def split_sim_key(key: str) -> tuple[str, int | None]:
+    """Kebalikan `sim_key`: ("SERIAL", 1) untuk "SERIAL/sim1"; (key, None) untuk serial biasa."""
+    base, sep, slot = key.rpartition(SIM_KEY_SEP)
+    if sep and base and slot.isdigit():
+        return base, int(slot)
+    return key, None
 
 
 @dataclass
@@ -129,10 +156,19 @@ class Config:
     source: Path | None = None
 
     def device(self, serial: str) -> DeviceConfig | None:
+        """Entri pertama untuk serial ini (HP dual-SIM yang dibaca dua slot punya dua entri: lihat device_entries)."""
         for dev in self.devices:
             if dev.serial == serial:
                 return dev
         return None
+
+    def device_entries(self, serial: str) -> list[DeviceConfig]:
+        """Semua entri config untuk satu HP: satu per slot SIM yang dibaca."""
+        return [dev for dev in self.devices if dev.serial == serial]
+
+    def device_serials(self) -> list[str]:
+        """Serial HP fisik di config, urut dan tanpa ganda."""
+        return list(dict.fromkeys(dev.serial for dev in self.devices))
 
     @property
     def kos_is_set(self) -> bool:
@@ -278,7 +314,40 @@ def _build(data: dict[str, Any], base: Path, source: Path | None) -> Config:
                 source_ip=str(source_ip).strip() if source_ip else None,
             )
         )
+    _check_multi_sim(cfg.devices)
     return cfg
+
+
+def _check_multi_sim(devices: list[DeviceConfig]) -> None:
+    """HP dual-SIM boleh ditulis dua kali (satu entri per slot), asal tiap entri punya phone_id berbeda.
+
+    Uji kecepatan lewat tethering selalu memakai SIM data, jadi hanya satu slot per HP yang boleh punya source_ip,
+    dan satu source_ip tidak boleh dipakai dua entri (hasilnya akan dicatat untuk operator yang salah).
+    """
+    by_serial: dict[str, list[DeviceConfig]] = {}
+    for dev in devices:
+        by_serial.setdefault(dev.serial, []).append(dev)
+    for serial, entries in by_serial.items():
+        if len(entries) == 1:
+            continue
+        ids = [d.phone_id for d in entries]
+        if any(i is None for i in ids):
+            raise ConfigError(f"HP {serial} ditulis {len(entries)} kali di devices: tiap entri wajib punya phone_id "
+                              "(0 = SIM 1, 1 = SIM 2)")
+        if len(set(ids)) != len(ids):
+            raise ConfigError(f"HP {serial}: phone_id ganda di devices; tiap slot SIM hanya boleh ditulis sekali")
+        if sum(1 for d in entries if d.source_ip) > 1:
+            raise ConfigError(f"HP {serial}: source_ip hanya boleh diisi di satu slot (SIM yang dipakai untuk data "
+                              "seluler); tethering selalu lewat SIM data")
+        for d in entries:
+            d.multi_sim = True
+    seen_ip: dict[str, str] = {}
+    for dev in devices:
+        if dev.source_ip:
+            if dev.source_ip in seen_ip:
+                raise ConfigError(f"source_ip {dev.source_ip} dipakai dua entri devices ({seen_ip[dev.source_ip]} dan "
+                                  f"{dev.label}); tiap IP sumber hanya mewakili satu operator")
+            seen_ip[dev.source_ip] = dev.label
 
 
 def _resolve(base: Path, value: Any) -> Path:
