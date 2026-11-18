@@ -239,6 +239,10 @@ Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git ch
 - Infinix SIM 2 (Tri): `rssnr=0` di `mSignalStrength` dan di semua CellInfo, kemungkinan nilai kosong, bukan 0 dB sungguhan.
   Parser masih menyimpannya sebagai SINR 0,0. Perlu dicek (bandingkan dengan aplikasi Network Cell Info) kalau SIM 2 ikut dipantau.
 - Xiaomi Android 10 (Redmi 9C): `pci`/`cell_id` kosong di semua sampel, `earfcn`/`band` hanya ±21% sampel. Perlu sumber lain.
+- Samsung Galaxy S22 (SM-S901E, Android 15/One UI 7, dual-SIM Telkomsel + Indosat): `mCi`/`mTac` disamarkan sebagian
+  (`mCi=1******19`). Sebelumnya terbaca sebagai cell_id 1; sekarang None (regex `_key_re` menolak angka yang diikuti `*`),
+  sehingga aturan handover memakai EARFCN. Fixture: `real_samsung_s22_android15_dualsim.txt`. Perlu driver USB Samsung di
+  Windows dan Pemblokir Otomatis (Auto Blocker) dimatikan supaya USB debugging bisa dinyalakan. SINR NR (ssSinr) tidak dilaporkan.
 
 ---
 
