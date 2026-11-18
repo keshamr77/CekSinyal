@@ -287,3 +287,20 @@ def test_nr_sinr_not_affected_by_lte_unit(unit):
 def test_invalid_unit_raises():
     with pytest.raises(ValueError):
         parse_registry(_lte_rssnr(5), lte_sinr_unit="dB?")
+
+
+def test_partially_masked_identity_is_none():
+    # Samsung Android 15 menyamarkan sebagian: mCi=1******19 tidak boleh terbaca sebagai cell_id 1.
+    text = (
+        "    mServiceState={mVoiceRegState=0(IN_SERVICE), mDataRegState=0(IN_SERVICE)}\n"
+        "    mSignalStrength=SignalStrength:{mLte=CellSignalStrengthLte: rssi=-51 rsrp=-76 rsrq=-10 rssnr=14}\n"
+        "    mCellIdentity=CellIdentityLte:{ mCi=1******19 mPci=474 mTac=2**5 mEarfcn=1850 mBands=[3] }\n"
+    )
+    r = parse_registry(text)
+    assert (r.cell_id, r.pci, r.earfcn, r.band) == (None, 474, 1850, 3)
+
+
+def test_real_samsung_s22_sim2():
+    r = parse_registry(_read("real_samsung_s22_android15_dualsim.txt"), phone_id=1)
+    assert r.ok and r.rat == "LTE" and r.operator_alpha == "INDOSATOOREDOO"
+    assert (r.rsrp, r.pci, r.cell_id, r.earfcn, r.band) == (-83, 115, None, 1475, 3)

@@ -2,7 +2,8 @@
 
 Format output berbeda antar-versi Android (9-14) dan merek HP, jadi semua nilai diambil
 dengan regex per kunci, bukan berdasarkan posisi kolom. Nilai yang tidak ada, bernilai
-"unavailable" (2147483647, dsb.), disamarkan (`mCi=*****`), atau di luar rentang fisik
+"unavailable" (2147483647, dsb.), disamarkan (`mCi=*****`, atau sebagian seperti Samsung
+`mCi=1******19`), atau di luar rentang fisik
 menjadi None.
 
 Aturan RAT:
@@ -109,7 +110,9 @@ class _Sig:
 # ---------------------------------------------------------------- helper umum
 
 def _key_re(key: str) -> re.Pattern[str]:
-    return re.compile(rf"\b(?:{key})\s*[=:]\s*(-?\d+)\b", re.IGNORECASE)
+    # `(?!\*)`: nilai yang disamarkan sebagian (Samsung Android 15: `mCi=1******19`, `mTac=2**5`)
+    # tidak boleh terbaca sebagai digit pertamanya saja; kunci itu dianggap tidak ada.
+    return re.compile(rf"\b(?:{key})\s*[=:]\s*(-?\d+)\b(?!\*)", re.IGNORECASE)
 
 
 def _int(key: str, text: str) -> int | None:
