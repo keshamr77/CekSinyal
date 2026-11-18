@@ -21,7 +21,7 @@ from typing import Any, Callable, Iterable
 import pandas as pd
 
 from .. import db
-from ..config import Config
+from ..config import Config, split_sim_key
 from ..diagnosis import rules
 from ..uploader.sheets import MINUTE_HEADERS, aggregate_minutes
 
@@ -268,13 +268,25 @@ def kos_alias_map(names: Iterable[str], aliases: dict[str, str], public: bool) -
 
 
 def device_label_map(measurements: pd.DataFrame) -> dict[str, str]:
-    """Serial ADB -> "HP 1", "HP 2", ... (urut kos, operator, lalu serial, supaya stabil antar-muat)."""
+    """Serial ADB -> "HP 1", "HP 2", ... (urut kos, operator, lalu serial, supaya stabil antar-muat).
+
+    HP dual-SIM yang dibaca dua slot ("SERIAL/sim1", "SERIAL/sim2") tetap satu HP: "HP 1 · SIM 1" dan
+    "HP 1 · SIM 2". Serial dasarnya juga dipetakan ke "HP 1" supaya tersamar di teks kejadian.
+    """
     if measurements.empty:
         return {}
-    firsts = measurements.dropna(subset=["device"]).groupby("device", sort=False).agg(
-        kos=("kos", "first"), operator=("operator", "first")).reset_index()
-    firsts = firsts.sort_values(["kos", "operator", "device"], na_position="last")
-    return {serial: f"HP {i}" for i, serial in enumerate(firsts["device"], start=1)}
+    devices = measurements.dropna(subset=["device"]).copy()
+    devices["base"] = devices["device"].map(lambda d: split_sim_key(str(d))[0])
+    firsts = devices.groupby("base", sort=False).agg(kos=("kos", "first"), operator=("operator", "first")).reset_index()
+    firsts = firsts.sort_values(["kos", "operator", "base"], na_position="last")
+    base_label = {base: f"HP {i}" for i, base in enumerate(firsts["base"], start=1)}
+    mapping: dict[str, str] = {}
+    for key in devices["device"].unique():
+        base, slot = split_sim_key(str(key))
+        mapping[key] = base_label[base] if slot is None else f"{base_label[base]} · SIM {slot}"
+    for base, label in base_label.items():
+        mapping.setdefault(base, label)
+    return mapping
 
 
 def apply_privacy(ds: Dataset, aliases: dict[str, str], public: bool) -> Dataset:
@@ -296,7 +308,8 @@ def apply_privacy(ds: Dataset, aliases: dict[str, str], public: bool) -> Dataset
     def scrub(text: Any) -> Any:
         if not isinstance(text, str):
             return text
-        for serial, label in devices.items():
+        # Terpanjang dulu: "SERIAL/sim1" harus diganti utuh sebelum "SERIAL".
+        for serial, label in sorted(devices.items(), key=lambda kv: -len(str(kv[0]))):
             text = text.replace(str(serial), label)
         for real, alias in kos_map.items():
             if real != alias:

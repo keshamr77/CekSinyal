@@ -237,8 +237,7 @@ class Collector:
                 self._mark_disconnected(serial, f"gagal membaca: {result}")
                 continue
             self._mark_connected(serial)
-            if self._store(serial, result):
-                saved += 1
+            saved += self._store(serial, result)
         return saved
 
     # ------------------------------------------------------------ pembacaan
@@ -246,7 +245,7 @@ class Collector:
     def _targets(self, listed: list[DeviceInfo]) -> list[str]:
         limit = self.config.collector.max_devices
         if self.config.devices:
-            serials = [d.serial for d in self.config.devices]
+            serials = self.config.device_serials()  # HP dual-SIM dengan dua entri tetap satu HP
             if len(serials) > limit and not self._warned_limit:
                 log.warning("config berisi %d HP, hanya %d pertama yang dibaca", len(serials), limit)
                 self._warned_limit = True
@@ -303,19 +302,25 @@ class Collector:
             state.sinr_unit = unit
         return unit
 
-    def _store(self, serial: str, result: _ReadResult) -> bool:
+    def _store(self, serial: str, result: _ReadResult) -> int:
+        """Simpan satu baris per slot SIM yang dibaca (HP dual-SIM: satu dumpsys, dua baris)."""
         now = self._now()
-        dev_cfg = self.config.device(serial)
         state = self._states.setdefault(serial, _DeviceState())
         state.prop_alpha = result.prop_alpha
         if result.sdk_checked:
             state.sdk, state.sdk_checked = result.sdk, True
+        entries: list[DeviceConfig | None] = list(self.config.device_entries(serial)) or [None]
+        return sum(self._store_slot(serial, dev_cfg, result, state, now) for dev_cfg in entries)
+
+    def _store_slot(self, serial: str, dev_cfg: DeviceConfig | None, result: _ReadResult,
+                    state: _DeviceState, now: datetime) -> int:
+        name = dev_cfg.label if dev_cfg else serial
         phone_id = dev_cfg.phone_id if dev_cfg else None
         unit = self._sinr_unit(serial, dev_cfg, state)
         try:
             reading = parse_registry(result.text, phone_id=phone_id, lte_sinr_unit=unit)
         except Exception as exc:  # parse_registry seharusnya tidak melempar, tapi tetap dijaga
-            log.exception("%s: parser error", serial)
+            log.exception("%s: parser error", name)
             reading = SignalReading(reason=f"error parser: {exc!r}")
         operator = resolve_operator(serial, dev_cfg, result.prop_alpha, reading)
         state.operator = operator
@@ -328,7 +333,7 @@ class Collector:
         ):
             state.sinr_forced_deci = True
             detail = (
-                f"HP {serial} (SDK {state.sdk if state.sdk is not None else '?'}) mengirim rssnr={raw}, "
+                f"HP {name} (SDK {state.sdk if state.sdk is not None else '?'}) mengirim rssnr={raw}, "
                 "di luar rentang dB; satuan SINR LTE dipindah ke 0,1 dB untuk sesi ini. "
                 "Kalau ini benar, isi sinr_unit: deci_db di config."
             )
@@ -340,26 +345,26 @@ class Collector:
         row = {
             "ts": db.iso(now),
             "kos": self.config.kos,
-            "device_serial": serial,
+            "device_serial": dev_cfg.key if dev_cfg else serial,
             "operator": operator,
             "raw_ok": 1 if reading.ok else 0,
             **reading.measurement_fields(),
         }
-        saved = True
+        saved = 1
         try:
             db.insert_measurement(self.conn, row)
         except sqlite3.Error:
-            log.exception("%s: gagal menyimpan measurement", serial)
-            saved = False
+            log.exception("%s: gagal menyimpan measurement", name)
+            saved = 0
 
         if reading.ok:
             log.info(
                 "%s %s: %s rsrp=%s rsrq=%s sinr=%s pci=%s cell=%s band=%s",
-                serial, operator, reading.rat, reading.rsrp, reading.rsrq, reading.sinr,
+                name, operator, reading.rat, reading.rsrp, reading.rsrq, reading.sinr,
                 reading.pci, reading.cell_id, reading.band,
             )
         else:
-            log.warning("%s %s: parsing gagal: %s", serial, operator, reading.reason)
+            log.warning("%s %s: parsing gagal: %s", name, operator, reading.reason)
             self._save_raw(serial, operator, result.text, reading.reason or "?", now)
         return saved
 
@@ -375,19 +380,22 @@ class Collector:
 
     # ------------------------------------------------------------ status & event
 
-    def _operator_for(self, serial: str) -> str | None:
-        dev_cfg = self.config.device(serial)
-        if dev_cfg and dev_cfg.operator:
-            return dev_cfg.operator
+    def _operators_for(self, serial: str) -> list[str | None]:
+        """Operator yang terdampak kalau HP ini bermasalah (HP dual-SIM: dua operator)."""
+        configured = [d.operator for d in self.config.device_entries(serial) if d.operator]
+        if configured:
+            return list(dict.fromkeys(configured))
         state = self._states.get(serial)
-        return state.operator if state else None
+        return [state.operator if state else None]
 
     def _mark_disconnected(self, serial: str, why: str) -> None:
         state = self._states.setdefault(serial, _DeviceState())
         if state.connected is not False:
             verb = "terputus" if state.connected else "belum terhubung"
-            log.warning("HP %s (%s) %s: %s", serial, self._operator_for(serial) or "?", verb, why)
-            self._event(self._operator_for(serial), f"HP {serial} {verb}: {why}")
+            operators = self._operators_for(serial)
+            log.warning("HP %s (%s) %s: %s", serial, ", ".join(o or "?" for o in operators), verb, why)
+            for operator in operators:  # satu kejadian per operator, supaya alert tiap operator tercatat
+                self._event(operator, f"HP {serial} {verb}: {why}")
         state.connected = False
         state.prop_alpha = None  # bisa saja HP/SIM diganti; baca ulang saat tersambung lagi
 
@@ -423,6 +431,7 @@ class Collector:
 class ProbeResult:
     serial: str
     operator: str | None = None
+    label: str | None = None  # serial + slot SIM untuk HP dual-SIM yang dibaca dua slot
     reading: SignalReading | None = None
     raw_path: Path | None = None
     error: str | None = None
@@ -452,24 +461,28 @@ def probe(config: Config, adb: Adb, raw_store: RawStore, serial: str | None = No
             res.raw_path = raw_store.save(info.serial, text, db.utc_now(), prefix="probe_")
         except OSError as exc:
             log.error("%s: gagal menyimpan output mentah: %s", info.serial, exc)
-        dev_cfg = config.device(info.serial)
-        pid = phone_id if phone_id is not None else (dev_cfg.phone_id if dev_cfg else None)
+        entries: list[DeviceConfig | None] = list(config.device_entries(info.serial)) or [None]
+        if phone_id is not None:  # --phone-id memilih satu slot, menimpa config
+            entries = [next((d for d in entries if d and d.phone_id == phone_id), entries[0])]
         sdk = None
-        if _configured_unit(dev_cfg) == "auto":
+        if _configured_unit(entries[0]) == "auto":
             try:
                 sdk = parse_sdk(adb.getprop(info.serial, SDK_PROP))
             except AdbError:
                 pass
-        # SDK tidak diketahui -> None: parser menebak per sampel (cukup untuk sekali baca).
-        res.reading = parse_registry(
-            text, phone_id=pid, lte_sinr_unit=lte_sinr_unit(_configured_unit(dev_cfg), sdk)
-        )
         prop = None
-        if not (dev_cfg and dev_cfg.operator):
+        if not all(d and d.operator for d in entries):
             try:
                 prop = adb.getprop(info.serial, OPERATOR_PROP)
             except AdbError:
                 pass
-        res.operator = resolve_operator(info.serial, dev_cfg, prop, res.reading)
-        results.append(res)
+        for dev_cfg in entries:
+            slot = ProbeResult(info.serial, raw_path=res.raw_path, label=dev_cfg.label if dev_cfg else None)
+            pid = phone_id if phone_id is not None else (dev_cfg.phone_id if dev_cfg else None)
+            # SDK tidak diketahui -> None: parser menebak per sampel (cukup untuk sekali baca).
+            slot.reading = parse_registry(
+                text, phone_id=pid, lte_sinr_unit=lte_sinr_unit(_configured_unit(dev_cfg), sdk)
+            )
+            slot.operator = resolve_operator(info.serial, dev_cfg, prop, slot.reading)
+            results.append(slot)
     return results

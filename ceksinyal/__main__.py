@@ -15,7 +15,7 @@ from .uploader.sheets import sheets_problem
 from .collector.adb import Adb, AdbError
 from .collector.parser import SignalReading, parse_registry
 from .collector.service import OPERATOR_PROP, Collector, RawStore, probe, safe_name
-from .config import Config, ConfigError, load_config
+from .config import Config, ConfigError, DeviceConfig, load_config
 from .diagnosis import engine
 
 log = logging.getLogger("ceksinyal")
@@ -59,6 +59,12 @@ def _print_reading(title: str, reading: SignalReading, raw_path: Path | None = N
     print()
 
 
+def _entry_operator(dev: DeviceConfig) -> str:
+    """Operator satu entri config; HP dual-SIM yang dibaca dua slot diberi tanda slotnya."""
+    name = dev.operator or "?"
+    return f"{name} (SIM {dev.phone_id + 1})" if dev.multi_sim and dev.phone_id is not None else name
+
+
 def cmd_devices(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
     try:
         listed = adb.devices()
@@ -67,7 +73,8 @@ def cmd_devices(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
         return 1
     rows = []
     for d in listed:
-        dev_cfg = cfg.device(d.serial)
+        entries = cfg.device_entries(d.serial)
+        configured = ", ".join(_entry_operator(e) for e in entries) or "-"
         prop = "-"
         if d.usable:
             try:
@@ -75,13 +82,13 @@ def cmd_devices(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
             except AdbError as exc:
                 log.debug("getprop %s gagal: %s", d.serial, exc)
         rows.append([
-            d.serial, d.state, d.model or "-",
-            (dev_cfg.operator if dev_cfg and dev_cfg.operator else "-"), prop,
+            d.serial, d.state, d.model or "-", configured, prop,
         ])
     seen = {d.serial for d in listed}
-    for dev_cfg in cfg.devices:
-        if dev_cfg.serial not in seen:
-            rows.append([dev_cfg.serial, "tidak terhubung", "-", dev_cfg.operator or "-", "-"])
+    for serial in cfg.device_serials():
+        if serial not in seen:
+            configured = ", ".join(_entry_operator(e) for e in cfg.device_entries(serial)) or "-"
+            rows.append([serial, "tidak terhubung", "-", configured, "-"])
     if not rows:
         print("Tidak ada HP terhubung. Cek kabel USB dan aktifkan USB debugging di HP.")
         return 0
@@ -121,10 +128,10 @@ def cmd_probe(cfg: Config, adb: Adb, args: argparse.Namespace) -> int:
     code = 0
     for res in results:
         if res.error or res.reading is None:
-            print(f"== {res.serial} ==\n  GAGAL: {res.error}\n")
+            print(f"== {res.label or res.serial} ==\n  GAGAL: {res.error}\n")
             code = 1
             continue
-        _print_reading(f"{res.serial} ({res.operator})", res.reading, res.raw_path)
+        _print_reading(f"{res.label or res.serial} ({res.operator})", res.reading, res.raw_path)
         if not res.reading.ok:
             code = 2
     if code == 2:

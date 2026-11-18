@@ -87,6 +87,8 @@ devices:
   - serial: R58M12345AB
     operator: Telkomsel
     # phone_id: 0   # opsional, untuk HP dual-SIM: slot SIM yang dibaca (0 atau 1)
+    #   Untuk membaca KEDUA SIM sekaligus, tulis serial yang sama dua kali (phone_id 0 dan 1, operator masing-masing);
+    #   source_ip hanya di slot SIM data. Lihat README "HP dual-SIM: dua operator dari satu HP".
     # sinr_unit: auto  # opsional, satuan rssnr LTE di dumpsys HP ini:
     #   auto    = dari versi Android (getprop ro.build.version.sdk): Android 10 ke bawah
     #             (SDK <= 29) memakai 0,1 dB, Android 11+ memakai dB (bawaan)

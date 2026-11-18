@@ -12,7 +12,7 @@ from .bot.telegram import TelegramClient, TelegramError, make_client
 from .collector.adb import Adb, AdbError
 from .collector.parser import parse_registry
 from .collector.service import SDK_PROP, lte_sinr_unit, parse_sdk
-from .config import Config
+from .config import Config, DeviceConfig
 from .uploader.sheets import GspreadBackend, sheets_problem
 
 log = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def _check_devices(cfg: Config, adb: Adb) -> list[Check]:
     except AdbError as exc:
         return [Check("adb", FAIL, str(exc))]
     out = [Check("adb", OK, f"{exe}, {len(listed)} HP terdeteksi")]
-    serials = [d.serial for d in cfg.devices]
+    serials = cfg.device_serials()
     if not serials:
         if not listed:
             return out + [Check("HP", FAIL, "tidak ada HP terhubung dan 'devices' kosong di config")]
@@ -72,7 +72,6 @@ def _check_devices(cfg: Config, adb: Adb) -> list[Check]:
     for serial in serials:
         name = f"HP {serial}"
         info = listed.get(serial)
-        dev_cfg = cfg.device(serial)
         if info is None:
             out.append(Check(name, FAIL, "tidak terhubung (cek kabel dan USB debugging)"))
             continue
@@ -89,31 +88,42 @@ def _check_devices(cfg: Config, adb: Adb) -> list[Check]:
         except AdbError as exc:
             out.append(Check(name, FAIL, f"dumpsys gagal: {exc}"))
             continue
-        unit = lte_sinr_unit(dev_cfg.sinr_unit if dev_cfg else "auto", sdk)
-        reading = parse_registry(text, phone_id=dev_cfg.phone_id if dev_cfg else None, lte_sinr_unit=unit)
-        operator = (dev_cfg.operator if dev_cfg and dev_cfg.operator else None) or reading.operator_alpha or "?"
-        if not reading.ok:
-            out.append(Check(name, FAIL, f"{operator}: parsing gagal ({reading.reason}); jalankan probe dan kirim output mentahnya"))
-            continue
-        detail = f"{operator}: {reading.rat}, RSRP {reading.rsrp}, SINR {reading.sinr}, band {reading.band}"
-        missing = [k for k in ("cell_id", "earfcn") if getattr(reading, k) is None and reading.rat not in ("NONE",)]
-        if reading.rat == "NONE":
-            out.append(Check(name, WARN, f"{operator}: HP tidak mendapat layanan saat ini"))
-        elif missing:
-            out.append(Check(name, WARN, f"{detail}; {', '.join(missing)} tidak tersedia di HP ini "
-                                         "(diagnosis handover terbatas)"))
-        else:
-            out.append(Check(name, OK, detail))
+        # HP dual-SIM yang dibaca dua slot: satu dumpsys, satu pemeriksaan per slot.
+        for dev_cfg in cfg.device_entries(serial) or [None]:
+            out.append(_check_slot(f"HP {dev_cfg.label}" if dev_cfg else name, dev_cfg, text, sdk))
     return out
+
+
+def _check_slot(name: str, dev_cfg: DeviceConfig | None, text: str, sdk: int | None) -> Check:
+    unit = lte_sinr_unit(dev_cfg.sinr_unit if dev_cfg else "auto", sdk)
+    reading = parse_registry(text, phone_id=dev_cfg.phone_id if dev_cfg else None, lte_sinr_unit=unit)
+    operator = (dev_cfg.operator if dev_cfg and dev_cfg.operator else None) or reading.operator_alpha or "?"
+    if not reading.ok:
+        return Check(name, FAIL, f"{operator}: parsing gagal ({reading.reason}); jalankan probe dan kirim output mentahnya")
+    detail = f"{operator}: {reading.rat}, RSRP {reading.rsrp}, SINR {reading.sinr}, band {reading.band}"
+    missing = [k for k in ("cell_id", "earfcn") if getattr(reading, k) is None and reading.rat not in ("NONE",)]
+    if reading.rat == "NONE":
+        return Check(name, WARN, f"{operator}: tidak mendapat layanan saat ini")
+    if missing:
+        return Check(name, WARN, f"{detail}; {', '.join(missing)} tidak tersedia di HP ini "
+                                 "(diagnosis handover terbatas)")
+    return Check(name, OK, detail)
 
 
 def _check_tethering(cfg: Config, local_ips: Callable[[], set[str]]) -> list[Check]:
     if not cfg.speedtest.enabled:
         return [Check("speedtest", SKIP, "speedtest.enabled: false di config")]
     targets = [d for d in cfg.devices if d.source_ip]
-    out = [Check(f"tethering {d.serial}", WARN, "source_ip belum diisi: uji kecepatan HP ini dilewati "
-                                                "(lihat: python -m ceksinyal interfaces)")
-           for d in cfg.devices if not d.source_ip]
+    out = []
+    for d in cfg.devices:
+        if d.source_ip:
+            continue
+        if d.multi_sim and any(e.source_ip for e in cfg.device_entries(d.serial)):
+            out.append(Check(f"tethering {d.label}", SKIP, f"{d.operator or '?'}: bukan SIM data, hanya sinyal yang "
+                                                           "diukur (tethering lewat slot lain)"))
+        else:
+            out.append(Check(f"tethering {d.label}", WARN, "source_ip belum diisi: uji kecepatan HP ini dilewati "
+                                                           "(lihat: python -m ceksinyal interfaces)"))
     if not cfg.devices:
         return [Check("speedtest", WARN, "'devices' kosong: uji kecepatan butuh devices[].source_ip")]
     if not targets:
@@ -124,9 +134,9 @@ def _check_tethering(cfg: Config, local_ips: Callable[[], set[str]]) -> list[Che
         return out + [Check("tethering", FAIL, f"daftar interface tidak bisa dibaca: {exc}")]
     for d in targets:
         if d.source_ip in ips:
-            out.append(Check(f"tethering {d.serial}", OK, f"IP sumber {d.source_ip} ada di laptop"))
+            out.append(Check(f"tethering {d.label}", OK, f"IP sumber {d.source_ip} ada di laptop"))
         else:
-            out.append(Check(f"tethering {d.serial}", FAIL, f"IP sumber {d.source_ip} tidak ada di laptop "
+            out.append(Check(f"tethering {d.label}", FAIL, f"IP sumber {d.source_ip} tidak ada di laptop "
                                                             "(nyalakan USB tethering, cek dengan: python -m ceksinyal interfaces)"))
     return out
 
