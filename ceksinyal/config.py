@@ -136,6 +136,8 @@ class DashboardConfig:
     sinr_good_db: float = 10.0
     download_good_mbps: float = 10.0
     download_poor_mbps: float = 2.0
+    # Level 1-5 di Beranda dihitung dari data sekian menit terakhir (seperti bar sinyal HP: kondisi sekarang).
+    level_window_minutes: float = 15.0
 
 
 @dataclass
@@ -282,6 +284,7 @@ def _build(data: dict[str, Any], base: Path, source: Path | None) -> Config:
     dash = _section(data, "dashboard")
     _fill(cfg.dashboard, dash, "dashboard", skip=("kos_aliases",), minimums={
         "stale_minutes": 1, "cache_ttl_seconds": 0, "download_good_mbps": 0, "download_poor_mbps": 0,
+        "level_window_minutes": 1,
     })
     cfg.dashboard.mode = cfg.dashboard.mode.lower() or "auto"
     if cfg.dashboard.mode not in DASHBOARD_MODES:

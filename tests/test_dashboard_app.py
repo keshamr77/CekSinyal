@@ -33,12 +33,16 @@ def run_app(monkeypatch, tmp_path):
                 "CEKSINYAL_DASHBOARD_MODE", "CEKSINYAL_DASHBOARD_PUBLIC", "CEKSINYAL_DASHBOARD_DB"):
         monkeypatch.delenv(key, raising=False)
 
-    def run(path, **env):
+    def run(path, view=app_mod.VIEW_DETAIL, **env):
+        """Tampilan awal app adalah Beranda; tes halaman teknis pindah ke "Detail lebih lanjut" dulu."""
         monkeypatch.setenv("CEKSINYAL_DASHBOARD_DB", str(path))
         for key, value in env.items():
             monkeypatch.setenv(key, value)
         at = AppTest.from_file(ENTRY, default_timeout=60)
         at.run()
+        toggle = [w for w in at.get("button_group") if w.key == "tampilan"]
+        if view != app_mod.VIEW_HOME and toggle:
+            toggle[0].set_value(view).run()
         return at
 
     return run
@@ -151,3 +155,20 @@ def test_sheets_mode_without_credentials_shows_clear_error(run_app, db_path, mon
     at.run()
     assert not at.exception and "ID spreadsheet belum diisi" in text_of(at)
     shutil.rmtree(".streamlit", ignore_errors=True)
+
+
+def test_home_page_is_simple_level_view(run_app, db_path):
+    at = run_app(db_path, view=app_mod.VIEW_HOME)
+    assert not at.exception, at.exception
+    assert len(at.tabs) == 0  # tab teknis hanya di "Detail lebih lanjut"
+    toggle = next(w for w in at.get("button_group") if w.key == "tampilan")
+    assert toggle.value == app_mod.VIEW_HOME and list(toggle.options) == app_mod.VIEWS
+    text = text_of(at)
+    for expected in ("Kos 1", "Kos 2", "Telkomsel", "Tri", "XL", "dari 5", "Arti level 1 sampai 5",
+                     "Telkomsel paling jarang bermasalah", "Alat ukur tidak mengirim data"):
+        assert expected in text, expected
+    assert ":green[" in text or ":orange[" in text or ":red[" in text  # bar sinyal berwarna
+    for technical in ("RSRP", "dBm", "SINR"):  # Beranda tanpa istilah teknis
+        assert technical not in text.split("Arti level")[0], technical
+    for secret in ("Garden House", "Kos Melati", SERIAL_A, SERIAL_B, SERIAL_C):
+        assert secret not in text, secret

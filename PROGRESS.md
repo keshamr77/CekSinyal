@@ -373,6 +373,26 @@ Catatan pencocokan: laporan (`report`) memberi median per sampel −91 dBm / 4,5
 - [ ] Minta satu orang non-teknik membaca tab Ringkasan dan "Cara membaca": apakah kalimatnya dimengerti.
 - [ ] Kuota baca Sheets saat banyak penonton (TTL 300 detik seharusnya cukup).
 
+## Beranda level 1-5 untuk orang awam (2026-11-18, masukan dosen)
+
+Masukan: dashboard lebih ramah orang awam, level 1-5 seperti bar sinyal HP di halaman utama, detail di menu lanjutan.
+
+Keputusan desain:
+- Tampilan awal "Beranda"; tab teknis lama pindah ke "Detail lebih lanjut" (`st.segmented_control`, key `tampilan`).
+  Dipilih daripada `st.navigation` karena hanya dua tampilan, tetap native, mudah disentuh di HP, dan bisa dites AppTest.
+- Level dihitung di `data.quality_level` (pandas saja, tanpa streamlit): median RSRP dan SINR dari
+  `dashboard.level_window_minutes` terakhir + uji kecepatan berhasil terakhir <= 30 menit; level = minimum ("mata rantai
+  terlemah"). Batas level diturunkan dari `Categories` (`level_cuts`), tidak di-hardcode: level 3 = batas Buruk, level 4 =
+  batas Baik, level 2/5 = satu langkah (selisih baik-buruk; unduh: setengah/dua kali) di luar batas itu.
+- Bar = 5 karakter Markdown berwarna (▂▃▅▆█) lewat `st.header`; selalu disertai ikon + teks + "N dari 5" (bukan warna saja).
+- Kalimat "cocok untuk" dan "penyebab utama" (besaran yang membatasi) dalam bahasa awam; tanpa istilah RSRP/SINR di Beranda.
+- Kos dengan dua operator: "Paling bagus di sini" dari `recommendations` (aturan diagnosis yang sama).
+
+Perlu uji manual:
+- [ ] Tunjukkan Beranda ke dosen dan ke 1-2 orang non-teknik: apakah level dan kalimatnya langsung dimengerti.
+- [ ] Buka di HP (Android + iPhone): kartu bertumpuk rapi, bar terbaca di tema terang dan gelap.
+- [ ] Bandingkan level dengan pengalaman nyata (buka YouTube/video call) di beberapa titik untuk kalibrasi batas.
+
 ## TODO / keterbatasan dashboard
 
 - Diperbaiki: spreadsheet ber-locale Indonesia (`in_ID`) mengembalikan angka berformat "25,68" sehingga grafik
