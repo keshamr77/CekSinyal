@@ -347,6 +347,8 @@ Catatan pencocokan: laporan (`report`) memberi median per sampel −91 dBm / 4,5
 
 ## TODO / keterbatasan dashboard
 
+- Diperbaiki: spreadsheet ber-locale Indonesia (`in_ID`) mengembalikan angka berformat "25,68" sehingga grafik
+  kecepatan kosong di mode sheets. Pembaca kini memakai `UNFORMATTED_VALUE`; teks berkoma desimal juga diterima.
 - Di laptop ini Windows Application Control memblokir DLL pandas 3.1.1 dan pyarrow 26; tes dijalankan dengan
   pandas 2.2.3 + pyarrow 18.1.0. Kode ditulis untuk pandas 2 dan 3, tetapi pandas 3 belum pernah dijalankan di sini.
 - Alias otomatis "Kos N" bisa bergeser kalau kos baru ditambahkan; daftarkan alias secara eksplisit.

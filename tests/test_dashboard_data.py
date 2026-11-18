@@ -386,3 +386,14 @@ def test_empty_dataset_functions_do_not_crash():
     assert data.category_shares(empty.measurements, "rsrp", CATS).empty
     assert data.downsample(empty.measurements).empty and data.data_gaps(empty.measurements).empty
     assert data.apply_privacy(empty, {}, True).empty
+
+
+def test_sheets_decimal_comma_text_is_number():
+    # Spreadsheet ber-locale Indonesia (in_ID) yang dibaca sebagai teks berformat: "25,68" harus tetap angka.
+    header = ["id", "ts", "kos", "operator", "method", "source_ip", "ping_ms", "download_mbps", "upload_mbps", "ok",
+              "error"]
+    row = ["1", "2026-11-18T05:14:42+00:00", "kos-a", "Telkomsel", "light", "10.0.0.2", "31,6", "25,68", "", "1", ""]
+    loaded = data.load_sheets(lambda tab: [header, row] if tab == "speedtests" else [])
+    r = loaded.speedtests.iloc[0]
+    assert (r["ping_ms"], r["download_mbps"], r["ok"]) == (31.6, 25.68, 1)
+    assert pd.isna(r["upload_mbps"])

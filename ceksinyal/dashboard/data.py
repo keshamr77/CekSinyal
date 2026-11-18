@@ -107,6 +107,16 @@ class Dataset:
 
 # ---------------------------------------------------------------- normalisasi
 
+_DECIMAL_COMMA = re.compile(r"^\s*-?\d+,\d+\s*$")
+
+
+def _to_number(values: pd.Series) -> pd.Series:
+    """Angka atau teks angka -> float. Teks berkoma desimal ("25,68", locale Indonesia di Sheets) juga diterima."""
+    if values.dtype == object:
+        values = values.map(lambda v: v.replace(",", ".") if isinstance(v, str) and _DECIMAL_COMMA.match(v) else v)
+    return pd.to_numeric(values, errors="coerce")
+
+
 def _frame(records: list[dict[str, Any]], table: str) -> pd.DataFrame:
     """Daftar dict (dari SQLite atau Sheets) -> DataFrame berskema tetap dengan tipe yang benar."""
     columns = _COLUMNS[table]
@@ -121,7 +131,7 @@ def _frame(records: list[dict[str, Any]], table: str) -> pd.DataFrame:
         if col in _TIMES[table]:
             df[col] = pd.to_datetime(df[col], utc=True, errors="coerce", format="ISO8601")
         elif col in _NUMERIC[table]:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+            df[col] = _to_number(df[col])
         else:  # teks: sel kosong dari Sheets ("") dianggap tidak ada
             df[col] = df[col].astype(object).where(df[col].notna() & (df[col].astype(str).str.strip() != ""), None)
     first_time = _TIMES[table][0]
@@ -222,12 +232,15 @@ def load_sheets(read_tab: Callable[[str], list[list[Any]]], source: str = "Googl
 
 
 def gspread_reader(spreadsheet: Any) -> Callable[[str], list[list[Any]]]:
-    """Pembaca tab untuk objek Spreadsheet gspread (satu permintaan API per tab)."""
+    """Pembaca tab untuk objek Spreadsheet gspread (satu permintaan API per tab).
+
+    Nilai dibaca mentah (UNFORMATTED_VALUE): tanpa itu, spreadsheet ber-locale Indonesia mengembalikan angka
+    sebagai teks berkoma desimal ("25,68") yang tidak terbaca sebagai angka."""
     def read(tab: str) -> list[list[Any]]:
         import gspread
 
         try:
-            return spreadsheet.worksheet(tab).get_all_values()
+            return spreadsheet.worksheet(tab).get_all_values(value_render_option="UNFORMATTED_VALUE")
         except gspread.WorksheetNotFound:
             return []
     return read
