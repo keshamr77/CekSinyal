@@ -397,3 +397,58 @@ def test_sheets_decimal_comma_text_is_number():
     r = loaded.speedtests.iloc[0]
     assert (r["ping_ms"], r["download_mbps"], r["ok"]) == (31.6, 25.68, 1)
     assert pd.isna(r["upload_mbps"])
+
+
+
+# ---------------------------------------------------------------- level 1-5
+
+def _minutes(rsrp, sinr, n=15, no_service=0, start="2026-11-18T05:00:00+00:00"):
+    ts = pd.date_range(start, periods=n, freq="min", tz="UTC")
+    return pd.DataFrame({"ts": ts, "rsrp": rsrp, "sinr": sinr, "n_samples": 6, "n_no_service": no_service})
+
+
+def _speeds(*pairs):
+    return pd.DataFrame({"ts": pd.to_datetime([t for t, _ in pairs], utc=True),
+                         "download_mbps": [v for _, v in pairs]}) if pairs else \
+        pd.DataFrame({"ts": pd.to_datetime([], utc=True), "download_mbps": []})
+
+
+@pytest.mark.parametrize("value,metric,expected", [
+    (-125, "rsrp", 1), (-115, "rsrp", 2), (-110, "rsrp", 3), (-100, "rsrp", 4), (-85, "rsrp", 5),
+    (-12, "sinr", 1), (-5, "sinr", 2), (5, "sinr", 3), (15, "sinr", 4), (25, "sinr", 5),
+    (0.5, "download", 1), (1.5, "download", 2), (5, "download", 3), (12, "download", 4), (30, "download", 5),
+    (None, "rsrp", None),
+])
+def test_metric_level_follows_categories(value, metric, expected):
+    cats = data.Categories()
+    assert data.metric_level(value, metric, cats) == expected
+    if expected is not None:  # level 4-5 = Baik, 3 = Cukup, 1-2 = Buruk (selaras dengan kategori)
+        category = data.categorize(value, metric, cats)
+        assert category == (data.GOOD if expected >= 4 else data.FAIR if expected == 3 else data.POOR)
+
+
+def test_quality_level_weakest_link_and_cause():
+    cats = data.Categories()
+    lv = data.quality_level(_minutes(-85, 25), _speeds(), cats)
+    assert (lv.level, lv.name, lv.cause) == (5, "Sangat baik", None)
+    lv = data.quality_level(_minutes(-85, 3), _speeds(), cats)  # sinyal kuat tapi kotor
+    assert (lv.level, lv.limiting) == (3, "sinr") and "terganggu" in lv.cause
+    lv = data.quality_level(_minutes(-85, 25), _speeds(("2026-11-18T05:10:00+00:00", 1.5)), cats)
+    assert (lv.level, lv.limiting) == (2, "download") and "lambat" in lv.cause
+
+
+def test_quality_level_uses_recent_window_and_fresh_speed():
+    cats = data.Categories()
+    old_bad = _minutes(-125, -15, n=60, start="2026-11-18T04:00:00+00:00")
+    now_good = _minutes(-85, 25, n=15, start="2026-11-18T05:00:00+00:00")
+    lv = data.quality_level(pd.concat([old_bad, now_good]), _speeds(("2026-11-18T03:00:00+00:00", 0.5)), cats, 15)
+    assert lv.level == 5 and "download" not in lv.by_metric  # data lama dan uji kecepatan basi diabaikan
+
+
+def test_quality_level_no_service_and_unknown():
+    cats = data.Categories()
+    lv = data.quality_level(_minutes(None, None, no_service=4), _speeds(), cats)
+    assert (lv.level, lv.name) == (0, "Tidak ada sinyal") and "tidak mendapat layanan" in lv.uses
+    lv = data.quality_level(_minutes(None, 0.0), _speeds(), cats)  # SINR selalu 0 = kosong, RSRP tidak ada
+    assert lv.level is None and lv.name == "Belum bisa dinilai"
+    assert data.quality_level(_minutes(None, None).iloc[:0], _speeds(), cats).level is None

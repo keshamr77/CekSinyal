@@ -411,6 +411,7 @@ class Card:
     download: float | None = None
     download_ts: datetime | None = None
     download_category: str = NO_DATA
+    level: "Level | None" = None
 
 
 def _median(series: pd.Series) -> float | None:
@@ -418,7 +419,8 @@ def _median(series: pd.Series) -> float | None:
     return float(values.median()) if len(values) else None
 
 
-def summary_cards(ds: Dataset, cats: Categories, now: datetime, stale_minutes: float = 15.0) -> list[Card]:
+def summary_cards(ds: Dataset, cats: Categories, now: datetime, stale_minutes: float = 15.0,
+                  level_window_minutes: float = 15.0) -> list[Card]:
     """Satu kartu per kos x operator. Median dihitung dari 24 jam sebelum data terakhir pasangan itu,
     supaya data lama (collector sudah berhenti) tetap terbaca, dengan peringatan "diam"."""
     cards = []
@@ -447,8 +449,100 @@ def summary_cards(ds: Dataset, cats: Categories, now: datetime, stale_minutes: f
         if not s.empty:
             card.download, card.download_ts = float(s.iloc[-1]["download_mbps"]), s.iloc[-1]["ts"].to_pydatetime()
             card.download_category = categorize(card.download, "download", cats)
+        card.level = quality_level(group, s, cats, level_window_minutes)
         cards.append(card)
     return cards
+
+
+# ---------------------------------------------------------------- level 1-5 (Beranda)
+
+# Level seperti bar sinyal HP, tetapi untuk KUALITAS (bukan hanya kekuatan). 0 = tidak ada layanan.
+LEVEL_NAMES = {5: "Sangat baik", 4: "Baik", 3: "Cukup", 2: "Buruk", 1: "Sangat buruk", 0: "Tidak ada sinyal"}
+LEVEL_USES = {
+    5: "Lancar untuk video call, streaming HD, dan game online.",
+    4: "Lancar untuk streaming video dan video call.",
+    3: "Cukup untuk chat, media sosial, dan video kualitas sedang. Video call bisa tersendat.",
+    2: "Hanya nyaman untuk chat dan pesan. Video sering buffering.",
+    1: "Sering gagal tersambung. Telepon dan pesan pun bisa terganggu.",
+    0: "HP tidak mendapat layanan dari operator ini di titik ini.",
+}
+# Penjelasan awam untuk besaran yang paling menurunkan level.
+LEVEL_CAUSES = {
+    "rsrp": "Sinyal dari menara lemah sampai di titik ini.",
+    "sinr": "Sinyal terganggu oleh sinyal lain (tidak bersih).",
+    "download": "Sinyalnya ada, tetapi internet sedang lambat (menara ramai).",
+}
+SPEED_FRESH_MINUTES = 30  # uji kecepatan lebih lama dari ini sebelum data terakhir tidak ikut menentukan level
+LEVEL_METRICS = ("rsrp", "sinr", "download")
+
+
+@dataclass
+class Level:
+    level: int | None                      # 0-5; None = belum bisa dinilai
+    by_metric: dict[str, int]              # level tiap besaran yang tersedia
+    limiting: str | None = None            # besaran yang paling menurunkan level (rsrp/sinr/download)
+    window_minutes: float = 15.0
+    pct_no_service: float | None = None
+
+    @property
+    def name(self) -> str:
+        return LEVEL_NAMES.get(self.level, "Belum bisa dinilai") if self.level is not None else "Belum bisa dinilai"
+
+    @property
+    def uses(self) -> str:
+        return LEVEL_USES.get(self.level, "Data terbaru terlalu sedikit untuk dinilai.") \
+            if self.level is not None else "Data terbaru terlalu sedikit untuk dinilai."
+
+    @property
+    def cause(self) -> str | None:
+        """Penyebab yang ditampilkan hanya kalau level di bawah Baik."""
+        if self.level is None or self.level >= 4 or self.level == 0 or self.limiting is None:
+            return None
+        return LEVEL_CAUSES[self.limiting]
+
+
+def level_cuts(metric: str, cats: Categories) -> tuple[float, float, float, float]:
+    """Empat batas naik untuk level 2, 3, 4, 5. Batas level 3 = "Buruk", batas level 4 = "Baik" (sama dengan
+    kategori Baik/Cukup/Buruk), sehingga level 4-5 selalu Baik, 3 Cukup, 1-2 Buruk."""
+    poor, good = cats.bounds(metric)
+    if metric == "download":  # kecepatan: kelipatan, bukan selisih tetap
+        return poor / 2, poor, good, good * 2
+    step = good - poor
+    return poor - step, poor, good, good + step
+
+
+def metric_level(value: Any, metric: str, cats: Categories) -> int | None:
+    if value is None or pd.isna(value):
+        return None
+    return 1 + sum(value >= cut for cut in level_cuts(metric, cats))
+
+
+def quality_level(measurements: pd.DataFrame, speedtests: pd.DataFrame, cats: Categories,
+                  window_minutes: float = 15.0) -> Level:
+    """Level 1-5 untuk satu kos x operator dari data `window_minutes` terakhir (sebelum data terakhirnya).
+
+    Level = besaran terlemah di antara RSRP, SINR, dan kecepatan unduh terbaru (kalau ada): koneksi hanya sebaik
+    mata rantai terlemahnya. Tanpa layanan di >= setengah sampel -> level 0.
+    """
+    if measurements.empty:
+        return Level(None, {}, window_minutes=window_minutes)
+    last = measurements["ts"].max()
+    recent = measurements[measurements["ts"] > last - timedelta(minutes=window_minutes)]
+    samples = recent["n_samples"].sum()
+    no_service = float(100 * recent["n_no_service"].sum() / samples) if samples else None
+    if no_service is not None and no_service >= 50:
+        return Level(0, {}, window_minutes=window_minutes, pct_no_service=no_service)
+    values: dict[str, float | None] = {"rsrp": _median(recent["rsrp"]), "sinr": _median(recent["sinr"])}
+    if values["sinr"] == 0 and (recent["sinr"].dropna() == 0).all():
+        values["sinr"] = None  # selalu persis 0 = nilai kosong dari HP
+    fresh = speedtests[speedtests["ts"] > last - timedelta(minutes=SPEED_FRESH_MINUTES)] if not speedtests.empty \
+        else speedtests
+    values["download"] = float(fresh.iloc[-1]["download_mbps"]) if not fresh.empty else None
+    by_metric = {m: lvl for m in LEVEL_METRICS if (lvl := metric_level(values[m], m, cats)) is not None}
+    if "rsrp" not in by_metric and "sinr" not in by_metric:
+        return Level(None, by_metric, window_minutes=window_minutes, pct_no_service=no_service)
+    limiting = min(by_metric, key=lambda m: (by_metric[m], LEVEL_METRICS.index(m)))
+    return Level(by_metric[limiting], by_metric, limiting, window_minutes, no_service)
 
 
 def format_ago(minutes: float) -> str:

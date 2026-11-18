@@ -188,7 +188,9 @@ def test_app_renders_in_sheets_mode(fake_gspread, clean, monkeypatch):
     assert not at.exception, at.exception
     text = "\n".join(str(el.value) for kind in ("subheader", "markdown", "caption") for el in getattr(at, kind))
     assert "Kos A" in text and "Garden House" not in text and "Google Sheets" in text
-    assert len(at.tabs) == 7
+    assert "dari 5" in text  # Beranda (tampilan awal) dengan level 1-5
+    next(w for w in at.get("button_group") if w.key == "tampilan").set_value("Detail lebih lanjut").run()
+    assert not at.exception and len(at.tabs) == 7
     at.run()  # muat kedua dalam TTL: dari cache, tanpa membaca Sheets lagi
     assert len(fake_gspread["reads"]) == 3
     st.cache_data.clear()

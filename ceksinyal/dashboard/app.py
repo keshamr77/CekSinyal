@@ -17,7 +17,9 @@ from ..diagnosis import rules
 from . import charts, data, settings as settings_mod
 from .data import GOOD, FAIR, POOR, NO_DATA, Card, Categories, Dataset
 
-TABS = ["Ringkasan", "Linimasa", "Perbandingan", "Kecepatan", "Kejadian", "Kualitas data", "Cara membaca"]
+VIEW_HOME, VIEW_DETAIL = "Beranda", "Detail lebih lanjut"
+VIEWS = [VIEW_HOME, VIEW_DETAIL]
+TABS = ["Ringkasan teknis", "Linimasa", "Perbandingan", "Kecepatan", "Kejadian", "Kualitas data", "Cara membaca"]
 CATEGORY_BADGE = {GOOD: ":green-badge[✅ Baik]", FAIR: ":orange-badge[⚠️ Cukup]", POOR: ":red-badge[⛔ Buruk]",
                   NO_DATA: ":gray-badge[– Tidak ada data]"}
 RANGES = {"24 jam terakhir": 24, "3 hari terakhir": 72, "7 hari terakhir": 168, "Semua data": None}
@@ -31,6 +33,27 @@ DIAGNOSIS_PLAIN = {
     rules.HANDOVER: "HP bolak-balik pindah menara, sehingga koneksi sering tersendat.",
     rules.INSUFFICIENT: "Datanya terlalu sedikit untuk disimpulkan (alat ukur baru menyala atau sempat berhenti).",
 }
+
+
+# Bar seperti indikator sinyal HP: makin banyak bar terisi, makin bagus. Warna hanya penegas; level juga
+# selalu ditulis dengan ikon + teks.
+BARS = ("▂", "▃", "▅", "▆", "█")
+LEVEL_COLOR = {5: "green", 4: "green", 3: "orange", 2: "red", 1: "red"}
+LEVEL_ICON = {5: "✅", 4: "✅", 3: "⚠️", 2: "⛔", 1: "⛔", 0: "📵"}
+
+
+def level_bars(level: int | None) -> str:
+    """Lima bar Markdown berwarna, mis. level 3 -> ':orange[▂▃▅]:gray[▆█]'."""
+    if not level:
+        return f":gray[{''.join(BARS)}]"
+    filled, empty = "".join(BARS[:level]), "".join(BARS[level:])
+    return f":{LEVEL_COLOR[level]}[{filled}]" + (f":gray[{empty}]" if empty else "")
+
+
+def level_title(lv: data.Level) -> str:
+    icon = LEVEL_ICON.get(lv.level, "❔") if lv.level is not None else "❔"
+    rank = f" · {lv.level} dari 5" if lv.level else ""
+    return f"{icon} {lv.name}{rank}"
 
 
 def diagnosis_icon(result: str | None) -> str:
@@ -100,8 +123,58 @@ def _load(s: settings_mod.DashboardSettings) -> Dataset:
 
 # ---------------------------------------------------------------- halaman
 
+def _cards(ctx: Context) -> list[Card]:
+    d = ctx.cfg.dashboard
+    return data.summary_cards(ctx.view, ctx.cats, ctx.now, d.stale_minutes, d.level_window_minutes)
+
+
+def page_home(ctx: Context) -> None:
+    """Beranda untuk orang awam: satu kartu per operator dengan level 1-5 seperti bar sinyal HP."""
+    cards = _cards(ctx)
+    if not cards:
+        st.info("Tidak ada data untuk pilihan ini.")
+        return
+    st.caption(f"Kualitas internet seluler di kos, dinilai 1 sampai 5 seperti bar sinyal di HP, dari "
+               f"{num(ctx.cfg.dashboard.level_window_minutes)} menit pengukuran terakhir.")
+    recs = {r.kos: r for r in data.recommendations(ctx.view)}
+    for kos in sorted({c.kos for c in cards}):
+        st.subheader(kos, anchor=False)
+        group = sorted((c for c in cards if c.kos == kos), key=lambda c: c.operator)
+        rec = recs.get(kos)
+        if rec and rec.best and len(group) > 1:
+            st.success(f"Dari pengukuran selama ini, {rec.best} paling jarang bermasalah di kos ini.",
+                       title=f"Paling bagus di sini: {rec.best}", icon="👍")
+        columns = st.columns(min(3, len(group)))
+        for i, card in enumerate(group):
+            with columns[i % len(columns)]:
+                _level_card(ctx, card)
+    with st.expander("Arti level 1 sampai 5"):
+        _table(pd.DataFrame([{"Level": f"{n}  {''.join(BARS[:n])}",
+                              "Kualitas": f"{LEVEL_ICON[n]} {data.LEVEL_NAMES[n]}", "Cocok untuk": data.LEVEL_USES[n]}
+                             for n in (5, 4, 3, 2, 1)]))
+        st.caption("Level dihitung dari kekuatan sinyal, kebersihan sinyal, dan kecepatan internet terbaru; yang "
+                   "paling lemah menentukan level, karena koneksi hanya sebaik bagian terlemahnya. Angka teknisnya ada "
+                   f"di {VIEW_DETAIL}.")
+
+
+def _level_card(ctx: Context, card: Card) -> None:
+    lv = card.level or data.Level(None, {})
+    with st.container(border=True):
+        st.markdown(f"#### {card.operator}")
+        st.header(level_bars(lv.level), anchor=False)
+        st.markdown(f"**{level_title(lv)}**")
+        st.markdown(lv.uses)
+        if lv.cause:
+            st.markdown(f"**Penyebab utama:** {lv.cause}")
+        if card.stale:
+            st.warning(f"Alat ukur tidak mengirim data sejak {data.format_ago(card.minutes_ago)}. "
+                       "Nilai di atas adalah kondisi terakhir yang terukur.", icon="⏸️")
+        else:
+            st.caption(f"Diperbarui {data.format_ago(card.minutes_ago)} ({ctx.fmt(card.last_seen, '%H:%M')} {ctx.tz_label})")
+
+
 def page_summary(ctx: Context) -> None:
-    cards = data.summary_cards(ctx.view, ctx.cats, ctx.now, ctx.cfg.dashboard.stale_minutes)
+    cards = _cards(ctx)
     if not cards:
         st.info("Tidak ada data untuk pilihan ini.")
         return
@@ -401,7 +474,7 @@ def _sidebar(ds: Dataset, s: settings_mod.DashboardSettings) -> Dataset:
 def main() -> None:
     st.set_page_config(page_title="CekSinyal", page_icon="📶", layout="wide")
     st.title("📶 CekSinyal")
-    st.caption("Kondisi sinyal seluler di kos: sedang baik atau buruk, sejak kapan, dan kenapa. "
+    st.caption("Seberapa bagus internet seluler di kos, dan kenapa. "
                "Tugas besar ET4132 Kapita Selekta Teknik Telekomunikasi, ITB (Kelompok 2).")
     s = settings_mod.resolve(_secrets(), os.environ)
     problem = s.problem()
@@ -422,6 +495,11 @@ def main() -> None:
     ctx = Context(full, _sidebar(full, s), s, now)
     st.caption(f"Data terbaru: {ctx.fmt(full.measurements['ts'].max(), '%d/%m/%Y %H:%M')} {ctx.tz_label} · "
                f"dimuat {ctx.fmt(raw.loaded_at, '%H:%M')} {ctx.tz_label}")
+    view = st.segmented_control("Tampilan", VIEWS, default=VIEW_HOME, required=True, key="tampilan",
+                                label_visibility="collapsed") or VIEW_HOME
+    if view == VIEW_HOME:
+        page_home(ctx)
+        return
     for tab, page in zip(st.tabs(TABS), PAGES):
         with tab:
             page(ctx)

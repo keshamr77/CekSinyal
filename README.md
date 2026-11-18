@@ -402,9 +402,28 @@ Dashboard web melengkapi spreadsheet bersama: Google Sheets tetap tempat data se
 menampilkannya secara visual untuk dosen, tim, dan warga kos (termasuk yang bukan orang teknik). Setiap angka punya
 kategori **Baik / Cukup / Buruk** dan penjelasan singkat.
 
+Tampilan awal adalah **Beranda** untuk orang awam; angka teknis ada di **Detail lebih lanjut** (tombol di bagian atas).
+
+**Beranda**: satu kartu per kos × operator dengan **level 1–5** seperti bar sinyal di HP (▂▃▅▆█), selalu dengan ikon
+dan teks (✅ Sangat baik/Baik, ⚠️ Cukup, ⛔ Buruk/Sangat buruk, 📵 Tidak ada sinyal), satu kalimat "cocok untuk apa",
+penyebab utama kalau level di bawah Baik, dan "Paling bagus di sini" kalau kos itu punya dua operator. Tidak ada istilah
+teknis (RSRP/SINR) di Beranda.
+
+Cara level dihitung (`dashboard/data.py: quality_level`):
+
+- Data `dashboard.level_window_minutes` (bawaan 15) menit terakhir per kos × operator, seperti bar sinyal yang
+  menunjukkan kondisi sekarang. Median RSRP, median SINR, dan uji kecepatan berhasil terakhir (maks. 30 menit sebelum
+  data terakhir) masing-masing diberi level 1–5; **level akhir = yang terendah** (koneksi sebaik bagian terlemahnya).
+- Batas level mengikuti kategori yang sama dengan bagian lain: level 4–5 = Baik, 3 = Cukup, 1–2 = Buruk. Dengan ambang
+  bawaan: RSRP −120/−110/−100/−90 dBm, SINR −10/0/10/20 dB, unduh 1/2/10/20 Mbps (batas naik ke level 2, 3, 4, 5).
+  Mengubah `diagnosis.*` atau `dashboard.*` ikut menggeser level.
+- ≥ 50% sampel tanpa layanan → 📵 Tidak ada sinyal. Tanpa RSRP dan SINR → "Belum bisa dinilai".
+
+**Detail lebih lanjut** berisi tab teknis:
+
 | Tab | Isi |
 |---|---|
-| Ringkasan | Kartu per kos × operator: diagnosis terakhir + saran, median RSRP/RSRQ/SINR 24 jam dengan kategori, kecepatan unduh terakhir, "terakhir terlihat" (peringatan kalau alat ukur diam > 15 menit). |
+| Ringkasan teknis | Kartu per kos × operator: diagnosis terakhir + saran, median RSRP/RSRQ/SINR 24 jam dengan kategori, kecepatan unduh terakhir, "terakhir terlihat" (peringatan kalau alat ukur diam > 15 menit). |
 | Linimasa | RSRP, RSRQ, SINR terhadap waktu per operator; latar berwarna = periode diagnosis bermasalah (plus tabelnya). |
 | Perbandingan | Rekomendasi operator per kos (aturan sama dengan diagnosis), persentase waktu Baik/Cukup/Buruk per kos × operator, tabel perbandingan. |
 | Kecepatan | Unduh, unggah, ping terhadap waktu; daftar uji yang gagal. |
@@ -448,7 +467,8 @@ Hal yang perlu diketahui:
   `diagnosis.sinr_interference_db` = 0 dB), jadi "Buruk" di dashboard selalu sejalan dengan "Cakupan lemah" dan
   "Interferensi". Bawaan batas baik: RSRP −100 dBm, RSRQ −10 dB (buruk < −15), SINR 10 dB, unduh 10 Mbps (buruk < 2).
 - **"24 jam terakhir"** dihitung mundur dari data terbaru yang ada, bukan dari jam sekarang, supaya data lama tetap
-  terbaca. Kalau data terbaru lebih tua dari `dashboard.stale_minutes` (15), kartu menampilkan peringatan "Alat ukur diam".
+  terbaca. Kalau data terbaru lebih tua dari `dashboard.stale_minutes` (15), kartu menampilkan peringatan "Alat ukur diam"
+  (di Beranda: "Alat ukur tidak mengirim data"; level menunjukkan kondisi terakhir yang terukur).
 - **Cache**: data dimuat ulang paling cepat tiap `dashboard.cache_ttl_seconds` (300 detik) atau lewat tombol "Muat ulang
   data". Satu kali muat = 4 permintaan baca ke Sheets (satu per tab), jauh di bawah kuota.
 - SINR yang selalu persis 0 dianggap "Tidak ada data" (sama dengan aturan diagnosis).

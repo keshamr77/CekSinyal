@@ -79,6 +79,7 @@ dashboard:
   sinr_good_db: 10
   download_good_mbps: 10
   download_poor_mbps: 2
+  level_window_minutes: 15   # Beranda: level 1-5 dari data sekian menit terakhir
 
 # HP yang dibaca. Serial dilihat dengan: python -m ceksinyal devices
 # Kalau daftar ini kosong, collector memakai HP apa saja yang terhubung (maks. max_devices)
