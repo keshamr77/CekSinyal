@@ -7,7 +7,7 @@ Semua perhitungan ada di data.py; file ini hanya menyusun tampilan.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
@@ -452,23 +452,36 @@ PAGES = [page_summary, page_timeline, page_comparison, page_speed, page_events, 
 
 # ---------------------------------------------------------------- kerangka
 
+def _multiselect_all(label: str, options: list[str], key: str) -> list[str]:
+    """Multiselect yang bawaannya semua opsi. Kalau daftar opsi berubah (data dimuat ulang, kos/operator
+    baru, alias diganti), pilihan direset ke semua; kalau sama, pilihan pengguna dipertahankan."""
+    options = list(options)
+    options_key = f"{key}__opsi"
+    if st.session_state.get(options_key) != options or key not in st.session_state:
+        st.session_state[options_key] = options
+        st.session_state[key] = options
+    else:  # jaga-jaga: buang nilai yang tidak ada lagi di daftar opsi
+        st.session_state[key] = [v for v in st.session_state[key] if v in options]
+    return st.sidebar.multiselect(label, options, key=key)
+
+
 def _sidebar(ds: Dataset, s: settings_mod.DashboardSettings) -> Dataset:
     st.sidebar.header("Saring")
     kos_names = ds.kos_names()
-    kos = st.sidebar.multiselect("Kos", kos_names, default=kos_names, key="filter_kos")
+    kos = _multiselect_all("Kos", kos_names, "filter_kos")
     operators_all = sorted(ds.measurements["operator"].dropna().unique())
-    operators = st.sidebar.multiselect("Operator", operators_all, default=operators_all, key="filter_operator")
-    choice = st.sidebar.selectbox("Rentang waktu", list(RANGES), index=0, key="filter_rentang",
-                                  help="Dihitung mundur dari data terbaru yang ada.")
-    latest = ds.measurements["ts"].max()
-    start = None if RANGES[choice] is None else (latest - timedelta(hours=RANGES[choice])).to_pydatetime()
+    operators = _multiselect_all("Operator", operators_all, "filter_operator")
+    choice = st.sidebar.selectbox(
+        "Rentang waktu", list(RANGES), index=0, key="filter_rentang",
+        help="Dihitung per kos, mundur dari pengukuran terakhir kos itu. Kos yang alat ukurnya sudah "
+             "berhenti tetap tampil dengan data terakhirnya.")
     if st.sidebar.button("Muat ulang data", help="Data juga dimuat ulang otomatis tiap beberapa menit."):
         st.cache_data.clear()
         st.rerun()
     st.sidebar.caption(f"Sumber: {ds.source}")
     if s.public:
         st.sidebar.caption("Mode publik: nama kos dan HP disamarkan.")
-    return ds.filter(kos=kos or kos_names, operators=operators or operators_all, start=start)
+    return ds.recent_per_kos(RANGES[choice]).filter(kos=kos or kos_names, operators=operators or operators_all)
 
 
 def main() -> None:

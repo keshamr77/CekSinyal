@@ -172,3 +172,44 @@ def test_home_page_is_simple_level_view(run_app, db_path):
         assert technical not in text.split("Arti level")[0], technical
     for secret in ("Garden House", "Kos Melati", SERIAL_A, SERIAL_B, SERIAL_C):
         assert secret not in text, secret
+
+
+def _kos_db(path, kos_list):
+    conn = db.connect(path)
+    for kos, serial, operator in kos_list:
+        for i in range(30):
+            db.insert_measurement(conn, {"ts": f"2026-11-15T08:{i // 6:02d}:{i % 6 * 10:02d}+00:00", "kos": kos,
+                                         "device_serial": serial, "operator": operator, "rat": "LTE",
+                                         "rsrp": -90, "sinr": 10.0, "raw_ok": 1})
+    conn.close()
+
+
+def test_new_kos_selected_after_reload(run_app, tmp_path):
+    """Kos/operator baru setelah "Muat ulang data" otomatis terpilih; pilihan lama tidak menahannya."""
+    path = tmp_path / "bertambah.db"
+    _kos_db(path, [("Kos Mawar", "S1", "Tri")])
+    at = run_app(path, CEKSINYAL_DASHBOARD_PUBLIC="0")
+    assert not at.exception, at.exception
+    kos = next(w for w in at.multiselect if w.key == "filter_kos")
+    assert kos.options == ["Kos Mawar"] and kos.value == ["Kos Mawar"]
+
+    conn = db.connect(path)
+    for i in range(30):
+        db.insert_measurement(conn, {"ts": f"2026-11-20T08:{i // 6:02d}:{i % 6 * 10:02d}+00:00", "kos": "Kos Anggrek",
+                                     "device_serial": "S2", "operator": "XL", "rat": "LTE", "rsrp": -95,
+                                     "sinr": 8.0, "raw_ok": 1})
+    conn.close()
+    next(b for b in at.button if b.label == "Muat ulang data").click().run()
+    assert not at.exception, at.exception
+    kos = next(w for w in at.multiselect if w.key == "filter_kos")
+    assert kos.options == ["Kos Anggrek", "Kos Mawar"] and kos.value == ["Kos Anggrek", "Kos Mawar"]
+    operator = next(w for w in at.multiselect if w.key == "filter_operator")
+    assert operator.value == ["Tri", "XL"]
+    # Kos Mawar berhenti 5 hari lebih awal, tetap tampil di "24 jam terakhir"
+    assert "Kos Mawar" in text_of(at) and "Kos Anggrek" in text_of(at)
+
+    # opsi tidak berubah: pilihan pengguna dipertahankan antar-rerun
+    kos.set_value(["Kos Mawar"]).run()
+    next(b for b in at.button if b.label == "Muat ulang data").click().run()
+    assert next(w for w in at.multiselect if w.key == "filter_kos").value == ["Kos Mawar"]
+    assert not at.exception

@@ -3,6 +3,18 @@
 Untuk melanjutkan di sesi baru: "baca PROGRESS.md dan lanjutkan". Spesifikasi utama tetap `CLAUDE.md`.
 Branch kerja: `pengembangan-m1-m7` (dibuat dari `main`; gabungkan dengan `git checkout main && git merge --ff-only pengembangan-m1-m7`).
 
+## Langkah berikutnya (per 2026-11-18)
+
+1. Commit + PR fitur "Beranda level 1-5" (masukan dosen #1) lalu merge ke `main` (Streamlit Cloud ikut ter-deploy).
+2. Masukan dosen #2: **mode tanpa kabel**. Menunggu keputusan topologi:
+   (a) HP jadi hotspot, laptop ikut hotspot (`adb tcpip` + `adb connect`; speedtest tetap seluler),
+   (b) satu access point bersama/Wi-Fi kos (Wireless debugging Android 11+; speedtest = Wi-Fi kos, dicatat terpisah,
+   "Sel padat" tidak tersedia), atau (c) keduanya.
+3. Ditanyakan ke dosen: apakah kualitas Wi-Fi kos ikut diukur (RSSI, band/kanal, AP sekitar, ping ke router vs internet,
+   jitter, kecepatan) dengan diagnosis sendiri, atau proyek tetap fokus seluler.
+4. Uji manual dual-SIM di S22 (lihat bagian "HP dual-SIM") dan uji manual Beranda (lihat bagian dashboard).
+5. Opsional: kosongkan `cell_id` palsu (=1) pada ±100 sampel awal S22 di SQLite (dengan backup).
+
 ## Status milestone
 
 | # | Isi | Status |
@@ -392,6 +404,27 @@ Perlu uji manual:
 - [ ] Tunjukkan Beranda ke dosen dan ke 1-2 orang non-teknik: apakah level dan kalimatnya langsung dimengerti.
 - [ ] Buka di HP (Android + iPhone): kartu bertumpuk rapi, bar terbaca di tema terang dan gelap.
 - [ ] Bandingkan level dengan pengalaman nyata (buka YouTube/video call) di beberapa titik untuk kalibrasi batas.
+
+## Perbaikan filter dashboard (2026-11-27)
+
+Masalah: (1) "Rentang waktu" dihitung dari data terbaru seluruh dataset, jadi kos yang alat ukurnya sudah berhenti
+hilang di "24 jam terakhir"; (2) filter Kos/Operator menyimpan pilihan lama di session_state, sehingga kos/operator
+baru setelah "Muat ulang data" tidak ikut terpilih.
+
+Keputusan desain:
+- `Dataset.recent_per_kos(hours)` (data.py, fungsi murni): patokan tiap kos = pengukuran terakhirnya di measurements;
+  dipakai untuk measurements, speedtests, diagnoses (`window_end`), dan events. Kos yang hanya ada di tabel lain
+  memakai waktu terakhirnya di tabel itu; baris tanpa kos memakai data terbaru seluruh dataset. `None` = semua data.
+- Patokan dihitung dari data sebelum filter operator (per kos, sesuai permintaan), lalu filter kos/operator diterapkan.
+- `Dataset.filter(kos=...)` kini juga meloloskan baris tanpa kos (seperti baris tanpa operator), supaya kejadian umum
+  tidak hilang. Saat ini `_frame` masih membuang baris tanpa kos, jadi tidak ada perubahan tampilan.
+- `_multiselect_all` (app.py): daftar opsi terakhir disimpan di `filter_kos__opsi`/`filter_operator__opsi`; kalau
+  berubah, pilihan direset ke semua; kalau sama, pilihan pengguna dipertahankan dan nilai basi dibuang. Widget tidak
+  lagi memakai `default=` (nilai lewat session_state saja, menghindari peringatan Streamlit).
+
+Perlu uji manual:
+- [ ] Di Streamlit Cloud: kos yang sudah berhenti mengukur tetap tampil di "24 jam terakhir" dengan data terakhirnya.
+- [ ] Tambah kos baru (atau ganti alias di secrets), klik "Muat ulang data": kos baru langsung terpilih tanpa refresh browser.
 
 ## TODO / keterbatasan dashboard
 
