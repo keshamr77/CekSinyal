@@ -86,7 +86,8 @@ class Dataset:
         def pick(df: pd.DataFrame, time_col: str, end_col: str | None = None) -> pd.DataFrame:
             mask = pd.Series(True, index=df.index)
             if kos is not None:
-                mask &= df["kos"].isin(list(kos))
+                # baris tanpa kos (mis. kejadian umum) tetap ikut, sama seperti baris tanpa operator
+                mask &= df["kos"].isin(list(kos)) | df["kos"].isna()
             if operators is not None:
                 # kejadian tanpa operator (mis. adb hilang) tetap ikut
                 mask &= df["operator"].isin(list(operators)) | df["operator"].isna()
@@ -103,6 +104,37 @@ class Dataset:
             diagnoses=pick(self.diagnoses, "window_start", "window_end"),
             events=pick(self.events, "ts"),
         )
+
+    def recent_per_kos(self, hours: float | None) -> "Dataset":
+        """Rentang "N jam terakhir" yang dihitung mundur dari data terakhir MASING-MASING kos.
+
+        Patokan tiap kos = waktu pengukuran terakhirnya di measurements, supaya kos yang alat ukurnya
+        sudah berhenti tetap tampil. Kos yang hanya ada di tabel lain memakai waktu terakhirnya di tabel
+        itu sendiri; baris tanpa kos memakai data terbaru seluruh dataset. `hours=None` = semua data.
+        """
+        if hours is None:
+            return self
+        anchors = self.measurements.groupby("kos")["ts"].max()
+        overall = self.measurements["ts"].max() if not self.measurements.empty else None
+        return replace(
+            self,
+            measurements=_recent(self.measurements, "ts", anchors, overall, hours),
+            speedtests=_recent(self.speedtests, "ts", anchors, overall, hours),
+            diagnoses=_recent(self.diagnoses, "window_end", anchors, overall, hours),
+            events=_recent(self.events, "ts", anchors, overall, hours),
+        )
+
+
+def _recent(df: pd.DataFrame, time_col: str, anchors: pd.Series, overall, hours: float) -> pd.DataFrame:
+    """Baris dengan `time_col` >= (patokan kos baris itu - `hours`)."""
+    if df.empty:
+        return df
+    times = pd.to_datetime(df[time_col], utc=True)
+    own = times.groupby(df["kos"]).max()
+    ref = pd.to_datetime(df["kos"].map(anchors), utc=True)
+    ref = ref.fillna(pd.to_datetime(df["kos"].map(own), utc=True))
+    ref = ref.fillna(overall if overall is not None and pd.notna(overall) else times.max())
+    return df[times >= ref - timedelta(hours=hours)]
 
 
 # ---------------------------------------------------------------- normalisasi

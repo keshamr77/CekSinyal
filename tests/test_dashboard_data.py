@@ -452,3 +452,79 @@ def test_quality_level_no_service_and_unknown():
     lv = data.quality_level(_minutes(None, 0.0), _speeds(), cats)  # SINR selalu 0 = kosong, RSRP tidak ada
     assert lv.level is None and lv.name == "Belum bisa dinilai"
     assert data.quality_level(_minutes(None, None).iloc[:0], _speeds(), cats).level is None
+
+
+# ---------------------------------------------------------------- rentang waktu per kos
+
+def _two_kos_dataset():
+    """Kos A mengukur sampai 25/11 12:00, Kos B berhenti 22/11 12:00 (tiga hari lebih awal)."""
+    a_end = datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc)
+    b_end = datetime(2026, 11, 22, 12, 0, tzinfo=timezone.utc)
+
+    def iso(t):
+        return t.isoformat()
+
+    meas, speed, diag, events = [], [], [], []
+    for kos, end in (("A", a_end), ("B", b_end)):
+        for h in range(0, 49, 6):  # satu baris tiap 6 jam selama 48 jam terakhir kos itu
+            t = end - timedelta(hours=h)
+            meas.append({"ts_minute": iso(t), "kos": kos, "device_serial": "S" + kos, "operator": "Op" + kos,
+                         "n_samples": 6, "rsrp_avg": -90})
+            speed.append({"ts": iso(t), "kos": kos, "operator": "Op" + kos, "method": "light", "ok": 1,
+                          "download_mbps": 10})
+            diag.append({"window_start": iso(t - timedelta(minutes=10)), "window_end": iso(t), "kos": kos,
+                         "operator": "Op" + kos, "result": "Normal"})
+            events.append({"ts": iso(t), "kos": kos, "operator": "Op" + kos, "type": "signal_lost", "detail": ""})
+    # kos C hanya punya uji kecepatan (alat ukur sinyal belum pernah jalan): patokan = uji terakhirnya sendiri
+    for h in (0, 30):
+        speed.append({"ts": iso(b_end - timedelta(days=5, hours=h)), "kos": "C", "operator": "OpC",
+                      "method": "light", "ok": 1, "download_mbps": 5})
+    ds = data.Dataset(data._frame(meas, "measurements"), data._frame(speed, "speedtests"),
+                      data._frame(diag, "diagnoses"), data._frame(events, "events"))
+    # kejadian tanpa kos (tidak lewat _frame karena _frame membuangnya)
+    general = pd.DataFrame([{"ts": pd.Timestamp(a_end - timedelta(hours=1)), "kos": None, "operator": None,
+                             "type": "collector_error", "detail": "x"},
+                            {"ts": pd.Timestamp(a_end - timedelta(hours=30)), "kos": None, "operator": None,
+                             "type": "collector_error", "detail": "lama"}])
+    ds.events = pd.concat([ds.events, general], ignore_index=True)
+    return ds, a_end, b_end
+
+
+def test_recent_per_kos_keeps_each_kos_with_its_own_window():
+    ds, a_end, b_end = _two_kos_dataset()
+    part = ds.recent_per_kos(24)
+    m = part.measurements
+    assert set(m["kos"]) == {"A", "B"}  # B tidak hilang walau berhenti 3 hari lebih awal
+    for kos, end in (("A", a_end), ("B", b_end)):
+        rows = m[m["kos"] == kos]
+        assert len(rows) == 5  # jam 0, 6, 12, 18, 24 sebelum data terakhir kos itu
+        assert rows["ts"].min() == pd.Timestamp(end - timedelta(hours=24))
+        assert rows["ts"].max() == pd.Timestamp(end)
+        d = part.diagnoses[part.diagnoses["kos"] == kos]
+        assert len(d) == 5 and d["window_end"].min() == pd.Timestamp(end - timedelta(hours=24))
+        s = part.speedtests[part.speedtests["kos"] == kos]
+        assert len(s) == 5 and s["ts"].min() == pd.Timestamp(end - timedelta(hours=24))
+        e = part.events[part.events["kos"] == kos]
+        assert len(e) == 5 and e["ts"].min() == pd.Timestamp(end - timedelta(hours=24))
+    # kos tanpa pengukuran: dihitung dari uji kecepatan terakhirnya sendiri
+    assert len(part.speedtests[part.speedtests["kos"] == "C"]) == 1
+    # kejadian tanpa kos: patokan = data terbaru seluruh dataset, tidak error dan tidak hilang
+    general = part.events[part.events["kos"].isna()]
+    assert list(general["detail"]) == ["x"]
+
+
+def test_recent_per_kos_all_data_and_kos_filter():
+    ds, _, _ = _two_kos_dataset()
+    everything = ds.recent_per_kos(None)
+    assert everything is ds and len(everything.measurements) == 18
+    week = ds.recent_per_kos(72)
+    assert len(week.measurements) == 18  # 48 jam data per kos, semuanya masuk 72 jam
+    part = ds.recent_per_kos(24).filter(kos=["B"])
+    assert set(part.measurements["kos"]) == {"B"}
+    assert part.events["kos"].isna().sum() == 1  # kejadian tanpa kos tetap ikut saat kos disaring
+
+
+def test_recent_per_kos_empty_tables():
+    empty = data.Dataset(*(data._frame([], t) for t in ("measurements", "speedtests", "diagnoses", "events")))
+    part = empty.recent_per_kos(24)
+    assert part.measurements.empty and part.events.empty
